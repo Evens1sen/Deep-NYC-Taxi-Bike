@@ -15,6 +15,63 @@ import pandas as pd
 from torchsummary import summary
 from Utils import load_pickle
 
+import argparse
+from configparser import ConfigParser
+
+parser = argparse.ArgumentParser()
+# parser.add_argument("--", type=, default=, help="")
+parser.add_argument("--dataname", type=str, default="NYC-Taxi", help="dataset name")
+parser.add_argument("--timestep_in", type=int, default=12, help="the time step you input")
+parser.add_argument("--timestep_out", type=int, default=3, help="the time step will output")
+parser.add_argument("--n_node", type=int, default=69, help="the number of the node")
+parser.add_argument("--channel", type=int, default=2, help="number of channel")
+parser.add_argument("--batchsize", type=int, default=64, help="size of the batches")
+parser.add_argument("--lr", type=float, default=0.001, help="adam: learning rate")
+parser.add_argument("--epoch", type=int, default=200, help="number of epochs of training")
+parser.add_argument("--patience", type=float, default=10, help="patience used for early stop")
+parser.add_argument("--optimizer", type=str, default='Adam', help="RMSprop, Adam")
+parser.add_argument("--loss", type=str, default='MAE', help="MAE, MSE, SELF")
+parser.add_argument("--trainratio", type=float, default=0.8,
+                    help="the total ratio of training data and validation data")  # TRAIN + VAL
+parser.add_argument("--trainvalsplit", type=float, default=0.125,
+                    help="val_ratio = 0.8 * 0.125 = 0.1")  # val_ratio = 0.8 * 0.125 = 0.1
+parser.add_argument("--flowpath", type=str, default='../data-NYCTaxi/30min/inoutflow.npz', help="the path of flow file")
+parser.add_argument("--adjpath", type=str, default='../data-processing/W_NYC.csv', help="the path of adj file")
+parser.add_argument("--cpu", type=int, default=1, help="the number of cpu")
+parser.add_argument("--adjtype", type=str, default="symnadj", help="the type of adj")
+parser.add_argument('--ex', type=str, default='typhoon-inflow', help='which experiment setting to run')
+parser.add_argument('--gpu', type=int, default=4, help='gpu num')
+
+opt = parser.parse_args()
+
+DATANAME = opt.dataname
+TIMESTEP_OUT = opt.timestep_out
+TIMESTEP_IN = opt.timestep_in
+N_NODE = opt.n_node
+CHANNEL = opt.channel
+BATCHSIZE = opt.batchsize
+LEARN = opt.lr
+EPOCH = opt.epoch
+PATIENCE = opt.patience
+OPTIMIZER = opt.optimizer
+LOSS = opt.loss
+TRAINRATIO = opt.trainratio
+TRAINVALSPLIT = opt.trainvalsplit
+FLOWPATH = opt.flowpath
+ADJPATH = opt.adjpath
+ADJTYPE = opt.adjtype
+GPU = opt.gpu
+cpu_num = opt.cpu  # cpu_num = 1
+import os
+
+os.environ['OMP_NUM_THREADS'] = str(cpu_num)
+os.environ['OPENBLAS_NUM_THREADS'] = str(cpu_num)
+os.environ['MKL_NUM_THREADS'] = str(cpu_num)
+os.environ['VECLIB_MAXIMUM_THREADS'] = str(cpu_num)
+os.environ['NUMEXPR_NUM_THREADS'] = str(cpu_num)
+torch.set_num_threads(cpu_num)
+
+
 class nconv(nn.Module):
     def __init__(self):
         super(nconv,self).__init__()
@@ -149,10 +206,17 @@ class gwnet(nn.Module):
     def forward(self, input):
         in_len = input.size(3)
         if in_len<self.receptive_field:
+            # print("forward start before", input.shape)
             x = nn.functional.pad(input,(self.receptive_field-in_len,0,0,0))
+            # print("forward start after", x.shape)
         else:
+            # print("forward start before", input.shape)
             x = input
+            # print("forward start after", x.shape)
+
+        # print("forward before", x.shape)
         x = self.start_conv(x)
+        # print("forward after", x.shape)
         skip = 0
 
         # calculate the current adaptive adj matrix once per iteration
@@ -182,7 +246,10 @@ class gwnet(nn.Module):
             filter = torch.tanh(filter)
             gate = self.gate_convs[i](residual)
             gate = torch.sigmoid(gate)
+            # print("filter before:",x.shape)
+            #todo torch.Size([2, 32, 69, 3]) ---> filter after: torch.Size([2, 32, 69, 1])
             x = filter * gate
+            # print("filter after:",x.shape)
 
             # parametrized skip connection
 
@@ -194,7 +261,7 @@ class gwnet(nn.Module):
                 skip = 0
             skip = s + skip
 
-
+            # print("gconv before:", x.shape)
             if self.gcn_bool and self.supports is not None:
                 if self.addaptadj:
                     x = self.gconv[i](x, new_supports)
@@ -203,14 +270,20 @@ class gwnet(nn.Module):
             else:
                 x = self.residual_convs[i](x)
 
+            # print("gconv after:",x.shape)
             x = x + residual[:, :, :, -x.size(3):]
-
+            # print("residual after",x.shape)
 
             x = self.bn[i](x)
+            # print("bn after",x.shape)
 
+        # print("F.relu before",x.shape)
         x = F.relu(skip)
+        # print("before: ",x.shape)
         x = F.relu(self.end_conv_1(x))
+        # print("after: ",x.shape)
         x = self.end_conv_2(x)
+        # print("after2: ",x.shape)
         return x
     
 def sym_adj(adj):
@@ -286,9 +359,7 @@ def load_adj(pkl_filename, adjtype):
     return adj
 
 def main():
-    from Param import ADJPATH,CHANNEL,N_NODE,TIMESTEP_IN
-    from Param_GraphWaveNet import ADJTYPE
-    GPU = sys.argv[-1] if len(sys.argv) == 2 else '3'
+    # GPU = sys.argv[-1] if len(sys.argv) == 2 else '3'
     device = torch.device("cuda:{}".format(GPU)) if torch.cuda.is_available() else torch.device("cpu")
     adj_mx =load_adj(ADJPATH,ADJTYPE)
     supports = [torch.tensor(i).to(device) for i in adj_mx]  

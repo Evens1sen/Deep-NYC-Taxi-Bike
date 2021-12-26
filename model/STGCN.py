@@ -11,7 +11,6 @@ import numpy as np
 import pandas as pd
 from scipy.sparse.linalg import eigs
 from torchsummary import summary
-from Param import *
 
 '''
 align主要是对数据格式进行一个处理，类似于reshape
@@ -74,6 +73,8 @@ class spatio_conv_layer(nn.Module):
         init.uniform_(self.b, -bound, bound)
 
     def forward(self, x):
+        # print('spatio_conv_layer Lk.shape' + str(self.Lk.shape))
+        # print('spatio_conv_layer x.shape' + str(x.shape))
         x_c = torch.einsum("knm,bitm->bitkn", self.Lk, x)
         x_gc = torch.einsum("iok,bitkn->botn", self.theta, x_c) + self.b
         return torch.relu(x_gc + x)
@@ -83,6 +84,7 @@ class spatio_conv_layer(nn.Module):
 '''
 
 class st_conv_block(nn.Module):
+    # self.st_conv1 = st_conv_block(ks, kt, n, bs[0], p, Lk)
     def __init__(self, ks, kt, n, c, p, Lk):
         super(st_conv_block, self).__init__()
         self.tconv1 = temporal_conv_layer(kt, c[0], c[1], "GLU")
@@ -114,6 +116,8 @@ class output_layer(nn.Module):
         return self.fc(x_t2)
 
 class STGCN(nn.Module):
+    # model = STGCN(ks, kt, bs, T, n, Lk, p).to(device)
+    # bs = [[CHANNEL, 16, 64], [64, 16, 64]]
     def __init__(self, ks, kt, bs, T, n, Lk, p):
         super(STGCN, self).__init__()
         self.st_conv1 = st_conv_block(ks, kt, n, bs[0], p, Lk)
@@ -121,9 +125,14 @@ class STGCN(nn.Module):
         self.output = output_layer(bs[1][2], T - 4 * (kt - 1), n)
 
     def forward(self, x):
+        # print('x.shape' + str(x.shape))
         x_st1 = self.st_conv1(x)
+        # print('x_st1.shape' + str(x_st1.shape))
         x_st2 = self.st_conv2(x_st1)
-        return self.output(x_st2)
+        # print('x_st2.shape' + str(x_st2.shape))
+        output_data = self.output(x_st2)
+        # print('output.shape' + str(output_data.shape))
+        return output_data
 
 def weight_matrix(W, sigma2=0.1, epsilon=0.5):
     '''
@@ -158,9 +167,10 @@ def cheb_poly(L, Ks):
     return np.asarray(LL)
 
 def main():
+    from pred_STGCN import CHANNEL, N_NODE, TIMESTEP_IN, TIMESTEP_OUT, ADJPATH, ADJTYPE
     GPU = sys.argv[-1] if len(sys.argv) == 2 else '3'
     device = torch.device("cuda:{}".format(GPU)) if torch.cuda.is_available() else torch.device("cpu")
-    
+    print('STGCN.py ' + str(CHANNEL))
     # ks, kt, bs, T, n, p = 3, 3, [[CHANNEL, 32, 64], [64, 32, 128]], TIMESTEP_IN, N_NODE, 0
     ks, kt, bs, T, n, p = 3, 3, [[CHANNEL, 16, 64], [64, 16, 64]], TIMESTEP_IN, N_NODE, 0
     A = pd.read_csv(ADJPATH).values

@@ -213,15 +213,28 @@ class DCGRU_Decoder(nn.Module):  # projected output as input at the next timeste
 
 
 class DCRNN(nn.Module):
-    def __init__(self, device, num_nodes: int, input_dim: int, out_horizon: int, P: list, K=3, hidden_dim=64, num_layers=2, bias=True,
+    def __init__(self, device, num_nodes: int, input_dim: int, output_dim: int, out_horizon: int, P: list, K=3, hidden_dim=64, num_layers=2, bias=True,
                  activation=None):
         super(DCRNN, self).__init__()
         self.K = K
-        self.P = self.compute_cheby_poly(P).to(device)  
+        self.P = self.compute_cheby_poly(P).to(device) 
         self.encoder = DCGRU_Encoder(num_nodes=num_nodes, input_dim=input_dim, hidden_dim=hidden_dim, K=self.P.shape[0],
                                      num_layers=num_layers, bias=bias, activation=activation, return_all_layers=True)
         self.decoder = DCGRU_Decoder(num_nodes=num_nodes, out_dim=input_dim, hidden_dim=hidden_dim, K=self.P.shape[0],
                                      num_layers=num_layers, bias=bias, activation=activation, out_horizon=out_horizon)
+        # 方式1
+#         self.fc = nn.Conv2d(in_channels=input_dim,
+#                                     out_channels=output_dim,
+#                                     kernel_size=(1,1),
+#                                     bias=True)
+        
+#         # 方式2 
+        self.fc = nn.ModuleList()
+        for i in range(out_horizon):
+            self.fc.append(nn.Conv1d(in_channels=input_dim,
+                                    out_channels=output_dim,
+                                    kernel_size=1,
+                                    bias=True))
 
     def compute_cheby_poly(self, P: list):
         P_k = []
@@ -246,14 +259,27 @@ class DCRNN(nn.Module):
         # deco_input = self.decoder.out_projector(h_t_lst[-1])        # initiate decoder input
         deco_input = torch.zeros((x_seq.shape[0], x_seq.shape[2], x_seq.shape[3]),
                                  device=x_seq.device)  # original initialization
-
+                                 
         outputs = list()
         for t in range(self.decoder.out_horizon):
             output, h_t_lst = self.decoder(P=self.P, x_t=deco_input, h_0_l=h_t_lst)
-            deco_input = output  # update decoder input
+#             print('h_t_lst shape : ', h_t_lst.shape)
+            deco_input = output  # update decoder input  
+            output = output.permute(0,2,1)  # [B,N,C] - [B,C,N]
+            output = self.fc[t](output)
+        
             outputs.append(output)
 
+        # print(outputs[0].shape)
         outputs = torch.stack(outputs, dim=1)  # (B, horizon, N, C)
+        outputs = outputs.permute(0, 1, 3, 2)
+        
+        
+#         outputs = outputs.permute(0,3,2,1) # (B, horizon, N, C) -> (B, C, N, horizon)
+#         outputs = self.fc(outputs)  # (B, C, N, horizon) ->  (B, 1, N, horizon) 
+#         outputs = outputs.permute(0,3,2,1) # (B, C, N, horizon) -> (B, horizon, N, C)
+        
+        # print('out shape is : ',outputs.shape)
         return outputs
 
 
@@ -328,14 +354,13 @@ def load_adj(pkl_filename, adjtype):
     return adj
 
 def main():
-    from Param import CHANNEL, N_NODE, TIMESTEP_IN, TIMESTEP_OUT
-    from Param_DCRNN import ADJPATH, ADJTYPE
+    from pred_DCRNN import CHANNEL, N_NODE, TIMESTEP_IN, TIMESTEP_OUT, ADJPATH, ADJTYPE
     GPU = sys.argv[-1] if len(sys.argv) == 2 else '3'
     device = torch.device("cuda:{}".format(GPU)) if torch.cuda.is_available() else torch.device("cpu")
     ADJTYPE = 'symnadj'
     adj_mx = load_adj(ADJPATH, ADJTYPE)
-    model = DCRNN(device, num_nodes=N_NODE, input_dim=CHANNEL, out_horizon=TIMESTEP_OUT, P=adj_mx).to(device)
-    summary(model, (TIMESTEP_IN, N_NODE, CHANNEL), device=device)
+    model = DCRNN(device, num_nodes=N_NODE, input_dim=CHANNEL, output_dim=1, out_horizon=TIMESTEP_OUT, P=adj_mx).to(device)
+    summary(model, (TIMESTEP_IN, N_NODE, 4), device=device)
 
 if __name__ == '__main__':
     main()

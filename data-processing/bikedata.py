@@ -17,9 +17,9 @@ crs_WGS84 = CRS.from_epsg(4326)
 crs_taxi_zones = CRS.from_epsg(2263)
 transformer = Transformer.from_crs(crs_WGS84, crs_taxi_zones)
 manhattan_zones_file = open(
-    '../../../data/mhy/NYCZones/manhattan_zones.csv', encoding='utf-8')
+    './data-NYCZones/zones/manhattan_zones.csv', encoding='utf-8')
 manhattan_zones_reader = csv.reader(manhattan_zones_file)
-taxi_zones = gpd.read_file("../../../data/mhy/NYCZones/taxi_zones.shp")
+taxi_zones = gpd.read_file("./data-NYCZones/zones/taxi_zones.shp")
 manhattan_zones_numbers = []
 manhattan_zones_header = []
 manhattan_zones = []
@@ -82,11 +82,11 @@ def get_flow(filepath):
             print(cnt)
     print(np.any(inout_flow == 0))
     print(np.any(od_flow == 0))
-    with open('../../../data/mhy/NYCBikeData/npyData/new_graph/{}-graph-inoutflow-{}.npz'.format(
-            filepath.split("/")[-1].split(".")[0], TIME_STEP), 'wb') as f:
+    with open('./data-NYCBike/{}min/{}-graph-inoutflow.npz'.format(TIME_STEP,
+            filepath.split("/")[-1].split(".")[0]), 'wb') as f:
         np.savez_compressed(f, inout_flow)
-    with open('../../../data/mhy/NYCBikeData/npyData/new_graph/{}-graph-odflow-{}.npz'.format(
-            filepath.split("/")[-1].split(".")[0], TIME_STEP), 'wb') as f:
+    with open('./data-NYCBike/{}min/{}-graph-odflow.npz'.format(TIME_STEP,
+            filepath.split("/")[-1].split(".")[0]), 'wb') as f:
         np.savez_compressed(f, od_flow)
     print(filepath.split("/")[-1].split(".")[0] + "complete!")
 

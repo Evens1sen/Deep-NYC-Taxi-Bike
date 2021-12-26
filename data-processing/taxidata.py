@@ -1,8 +1,9 @@
 import numpy as np
 import pandas as pd
 import multiprocessing
+import os
 
-TIME_GAP = 0.5
+TIME_GAP = 1
 
 def get_flow(year, month):
     in_outflow = np.zeros((2, int((31*24) / TIME_GAP), 69))
@@ -12,7 +13,7 @@ def get_flow(year, month):
     taxi_data = pd.read_csv(path, dtype=str)
     taxi_data['DOLocationID'] = taxi_data['DOLocationID'].astype('int64')
     taxi_data['PULocationID'] = taxi_data['PULocationID'].astype('int64')
-    manhattan_zones = pd.read_csv("/home/cseadmin/mhy/data/NYCZones/manhattan_zones.csv")
+    manhattan_zones = pd.read_csv("./data-NYCZones/zones/manhattan_zones.csv")
     manhattan_zones_id  = list(manhattan_zones["zone_id"])
     manhattan_taxi_data = taxi_data[(taxi_data['DOLocationID'].isin(manhattan_zones_id)) & (taxi_data['PULocationID'].isin(manhattan_zones_id))]
     
@@ -53,11 +54,14 @@ def get_flow(year, month):
             d_id = manhattan_zones[manhattan_zones['zone_id'] == row_['DOLocationID']].graph_id
             count = row_['counts']
             odflow[index, o_id, d_id] = count
-            
-    f = f'/home/cseadmin/mhy/data/NYCTaxiData/npyData/halfhour/yellow_tripdata_{year}-%02d-graph-inoutflow.npz' % month
+
+    minutes = int(TIME_GAP * 60)
+    if not os.path.exists(f'./data-NYCTaxi/{minutes}min'):
+        os.makedirs(f'./data-NYCTaxi/{minutes}min')        
+    f = f'./data-NYCTaxi/{minutes}min/yellow_tripdata_{year}-%02d-graph-inoutflow.npz' % month
     np.savez_compressed(f, in_outflow)
 
-    f = f'/home/cseadmin/mhy/data/NYCTaxiData/npyData/halfhour/yellow_tripdata_{year}-%02d-graph-odflow.npz' % month
+    f = f'./data-NYCTaxi/{minutes}min/yellow_tripdata_{year}-%02d-graph-odflow.npz' % month
     np.savez_compressed(f, odflow)
     print(f"{year}-{month}Saved")
 
