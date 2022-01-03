@@ -75,8 +75,11 @@ class spatio_conv_layer(nn.Module):
     def forward(self, x):
         # print('spatio_conv_layer Lk.shape' + str(self.Lk.shape))
         # print('spatio_conv_layer x.shape' + str(x.shape))
+        
         x_c = torch.einsum("knm,bitm->bitkn", self.Lk, x)
         x_gc = torch.einsum("iok,bitkn->botn", self.theta, x_c) + self.b
+        
+        print('sp shape is :', x_gc.shape)
         return torch.relu(x_gc + x)
 
 '''
@@ -96,7 +99,9 @@ class st_conv_block(nn.Module):
 
     def forward(self, x):
         x_t1 = self.tconv1(x)
+        print('x_t1 shape is',x_t1.shape)
         x_s = self.sconv(x_t1)
+        print('st_conv_block x_s shape is',x_s.shape)
         x_t2 = self.tconv2(x_s)
         x_ln = self.ln(x_t2.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)        
         return self.dropout(x_ln)
@@ -125,13 +130,13 @@ class STGCN(nn.Module):
         self.output = output_layer(bs[1][2], T - 4 * (kt - 1), n)
 
     def forward(self, x):
-        # print('x.shape' + str(x.shape))
+        print('x.shape is', x.shape)
         x_st1 = self.st_conv1(x)
-        # print('x_st1.shape' + str(x_st1.shape))
+        print('x_st1.shape is ', x_st1.shape)
         x_st2 = self.st_conv2(x_st1)
-        # print('x_st2.shape' + str(x_st2.shape))
+        print('x_st2.shape is ', x_st2.shape)
         output_data = self.output(x_st2)
-        # print('output.shape' + str(output_data.shape))
+        print('output.shape is', output_data.shape)
         return output_data
 
 def weight_matrix(W, sigma2=0.1, epsilon=0.5):
@@ -142,7 +147,7 @@ def weight_matrix(W, sigma2=0.1, epsilon=0.5):
     :return: np.ndarray, [n_route, n_route].
     '''
     n = W.shape[0]
-    W = W /10000
+    W = W /10
     W[W==0]=np.inf
     W2 = W * W
     W_mask = (np.ones([n, n]) - np.identity(n))
@@ -173,11 +178,27 @@ def main():
     print('STGCN.py ' + str(CHANNEL))
     # ks, kt, bs, T, n, p = 3, 3, [[CHANNEL, 32, 64], [64, 32, 128]], TIMESTEP_IN, N_NODE, 0
     ks, kt, bs, T, n, p = 3, 3, [[CHANNEL, 16, 64], [64, 16, 64]], TIMESTEP_IN, N_NODE, 0
+    # Lk_new = torch.empty()
+    # for i in range(3):
+    #     A = pd.read_csv(ADJPATH).values
+    #     W = weight_matrix(A)
+    #     L = scaled_laplacian(W)
+    #     print('L shape is', L.shape)
+    #     Lk = cheb_poly(L, ks)
+    #     print('cheb_poly', Lk.shape)
+    #     Lk = torch.Tensor(Lk.astype(np.float32)).to(device)
+    #     Lk_new = np.append(Lk_new, Lk, axis=0)
+    #     print('Lk shape is',Lk.shape)
+    # print('Lk_new shape is',Lk_new.shape)
     A = pd.read_csv(ADJPATH).values
     W = weight_matrix(A)
     L = scaled_laplacian(W)
+    print('L shape is', L.shape)
     Lk = cheb_poly(L, ks)
+    print('cheb_poly', Lk.shape)
     Lk = torch.Tensor(Lk.astype(np.float32)).to(device)
+    # Lk_new = np.append(Lk_new, Lk, axis=0)
+    print('Lk shape is', Lk.shape)
     model = STGCN(ks, kt, bs, T, n, Lk, p).to(device)
     summary(model, (CHANNEL, TIMESTEP_IN, N_NODE), device=device)
     

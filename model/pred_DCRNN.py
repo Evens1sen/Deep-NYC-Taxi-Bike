@@ -27,7 +27,7 @@ parser.add_argument("--dataname", type=str, default="NYC-Taxi", help="dataset na
 parser.add_argument("--timestep_in", type=int, default=12, help="the time step you input")
 parser.add_argument("--timestep_out", type=int, default=3, help="the time step will output")
 parser.add_argument("--n_node", type=int, default=69, help="the number of the node")
-parser.add_argument("--channel", type=int, default=2, help="number of channel")
+parser.add_argument("--channel", type=int, default=1, help="number of channel")
 parser.add_argument("--batchsize", type=int, default=64, help="size of the batches")
 parser.add_argument("--lr", type=float, default=0.001, help="adam: learning rate")
 parser.add_argument("--epoch", type=int, default=200, help="number of epochs of training")
@@ -38,13 +38,14 @@ parser.add_argument("--trainratio", type=float, default=0.8,
                     help="the total ratio of training data and validation data")  # TRAIN + VAL
 parser.add_argument("--trainvalsplit", type=float, default=0.125,  
                     help="val_ratio = 0.8 * 0.125 = 0.1")  # val_ratio = 0.8 * 0.125 = 0.1
-parser.add_argument("--flowpath", type=str, default='../data-NYCBike/30min/201901-202012-NYCbike-inoutflow.npz', help="the path of flow file")
-parser.add_argument("--adjpath", type=str, default='../data-NYCZones/adjmatrix/W_adj_matrix.csv', help="the path of adj file")
+parser.add_argument("--flowpath", type=str, default='../data-NYCBike/60min/2019-2020-graph-inflow.npz', help="the path of flow file")
+parser.add_argument("--adjpath", type=str, default='../data-NYCZones/adjmatrix/W_od_bike_new.csv', help="the path of adj file")
 parser.add_argument("--cpu", type=int, default=1, help="the number of cpu")
-parser.add_argument("--adjtype", type=str, default="symnadj", help="the type of adj")
+parser.add_argument("--adjtype", type=str, default="normlap", help="the type of adj")
 parser.add_argument('--ex', type=str, default='typhoon-inflow', help='which experiment setting to run')
 parser.add_argument('--gpu', type=int, default=0, help='gpu num')
 parser.add_argument('--target', type=int, default=0, help="The output target dimension")
+parser.add_argument('--addtime', type=bool, default=False, help="Add timestamp")
 
 opt = parser.parse_args()
 
@@ -66,6 +67,7 @@ ADJPATH = opt.adjpath
 ADJTYPE = opt.adjtype
 GPU = opt.gpu
 TARGET = opt.target
+ADDTIME = opt.addtime
 cpu_num = opt.cpu  # cpu_num = 1
 import os
 
@@ -99,6 +101,17 @@ def getXSYS(data, mode):
     
     return XS, YS
 
+def getXSYSTimestamp(data, timestamp, mode):
+    global CHANNEL
+    if ADDTIME:
+        CHANNEL = 1
+    XS, YS = getXSYS(data,mode)  # [samples,N]->[B,T,N,C]
+    time_seq_X, time_seq_Y = getXSYS(timestamp,mode) # [samples,N]->[B,T,N,C]
+    timestamp = (timestamp - timestamp.astype("datetime64[D]")) / np.timedelta64(1, "D")
+    sca_seq_timestamp_X, sca_seq_timestamp_Y = getXSYS(timestamp,mode) # [samples,N]->[B,T,N,C]
+    XS = np.concatenate((XS, sca_seq_timestamp_X), axis=-1)
+    return XS, YS
+    
 
 def getModel(name):
     adj_mx = load_adj(ADJPATH, ADJTYPE)
@@ -133,6 +146,9 @@ def predictModel(model, data_iter):
 def trainModel(name, mode, XS, YS):
     print('Model Training Started ...', time.ctime())
     print('TIMESTEP_IN, TIMESTEP_OUT', TIMESTEP_IN, TIMESTEP_OUT)
+    global CHANNEL
+    if ADDTIME:
+        CHANNEL = 2
     model = getModel(name)
     summary(model, (TIMESTEP_IN, N_NODE, CHANNEL), device=device)
     XS_torch, YS_torch = torch.Tensor(XS).to(device), torch.Tensor(YS).to(device)
@@ -221,6 +237,9 @@ def testModel(name, mode, XS, YS):
         criterion = nn.L1Loss()
     print('Model Testing Started ...', time.ctime())
     print('TIMESTEP_IN, TIMESTEP_OUT', TIMESTEP_IN, TIMESTEP_OUT)
+    global CHANNEL
+    if ADDTIME:
+        CHANNEL = 2
     XS_torch, YS_torch = torch.Tensor(XS).to(device), torch.Tensor(YS).to(device)
     test_data = torch.utils.data.TensorDataset(XS_torch, YS_torch)
     test_iter = torch.utils.data.DataLoader(test_data, BATCHSIZE, shuffle=False)
@@ -230,7 +249,6 @@ def testModel(name, mode, XS, YS):
     torch_score = evaluateModel(model, criterion, test_iter)
     YS_pred = predictModel(model, test_iter)
     print('YS.shape, YS_pred.shape,', YS.shape, YS_pred.shape)
-
     YS, YS_pred = scaler.inverse_transform(np.squeeze(YS)), scaler.inverse_transform(np.squeeze(YS_pred))
     # if CHANNEL == 1:
     #     YS, YS_pred = scaler.inverse_transform(np.squeeze(YS)), scaler.inverse_transform(np.squeeze(YS_pred))
@@ -273,10 +291,18 @@ np.random.seed(100)
 device = torch.device("cuda:{}".format(GPU)) if torch.cuda.is_available() else torch.device("cpu")
 ###########################################################
 # data = pd.read_hdf(FLOWPATH).values
-data = np.load(FLOWPATH)['arr_0']
-# data = data.transpose(1, 2, 0)
+data = None
+timestamp = None
+if ADDTIME:
+    CHANNEL = 1
+    data = pd.read_hdf(FLOWPATH)
+    stamp = data.index
+    timestamp = np.tile(stamp, [data.shape[1],1]).transpose(1,0)  # [samples,nodes]
+    data = data.values
+else:
+    data = np.load(FLOWPATH)['arr_0']
+
 scaler = StandardScaler()
-#todo
 if CHANNEL == 1:
     data = scaler.fit_transform(data)
 else:
@@ -295,14 +321,19 @@ def main():
     shutil.copy2('DCRNN.py', PATH)
     # shutil.copy2('Param.py', PATH)
     # shutil.copy2('Param_DCRNN.py', PATH)
-    #
     print(KEYWORD, 'training started', time.ctime())
-    trainXS, trainYS = getXSYS(data, 'TRAIN')
+    if ADDTIME:
+        trainXS, trainYS = getXSYSTimestamp(data, timestamp, 'TRAIN')
+    else:
+        trainXS, trainYS = getXSYS(data, 'TRAIN')        
     print('TRAIN XS.shape YS,shape', trainXS.shape, trainYS.shape)
     trainModel(MODELNAME, 'train', trainXS, trainYS)
 
     print(KEYWORD, 'testing started', time.ctime())
-    testXS, testYS = getXSYS(data, 'TEST')
+    if ADDTIME:
+        testXS, testYS = getXSYSTimestamp(data, timestamp, 'TEST')
+    else:
+        testXS, testYS = getXSYS(data, 'TEST')
     print('TEST XS.shape, YS.shape', testXS.shape, testYS.shape)
     testModel(MODELNAME, 'test', testXS, testYS)
 

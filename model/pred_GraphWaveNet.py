@@ -39,19 +39,20 @@ parser.add_argument("--trainratio", type=float, default=0.8,
                     help="the total ratio of training data and validation data")  # TRAIN + VAL
 parser.add_argument("--trainvalsplit", type=float, default=0.125,
                     help="val_ratio = 0.8 * 0.125 = 0.1")  # val_ratio = 0.8 * 0.125 = 0.1
-parser.add_argument("--flowpath", type=str, default='/home/cseadmin/mhy/data-NYCTaxi/60min_origin/2019-2020-graph-outflow.npz',
+parser.add_argument("--flowpath", type=str, default='/home/cseadmin/mhy/data-NYCBike/60min/2019-2020-graph-outflow.npz',
                     help="the path of flow file")
-parser.add_argument("--adjpath", type=str, default='../data-NYCZones/adjmatrix/W_adj_matrix.csv',
+parser.add_argument("--adjpath", type=str, default='/home/cseadmin/mhy/data-NYCZones/adjmatrix/W_od_bike_new.csv',
                     help="the path of adj file")
-# parser.add_argument("--target", type=int, default=0, help='the target dim')
-parser.add_argument("--cpu", type=int, default=1, help="the number of cpu")
-parser.add_argument("--adjtype", type=str, default="symnadj", help="the type of adj")
+parser.add_argument("--target", type=int, default=0, help='the target dim')
+parser.add_argument("--adjtype", type=str, default="normlap", help="the type of adj")
 parser.add_argument('--ex', type=str, default='typhoon-inflow', help='which experiment setting to run')
 parser.add_argument('--gpu', type=int, default=3, help='gpu num')
+parser.add_argument('--addtime', type=bool, default=False, help="Add timestamp")
+
 
 opt = parser.parse_args()
 
-# TARGET = opt.target
+TARGET = opt.target
 DATANAME = opt.dataname
 TIMESTEP_OUT = opt.timestep_out
 TIMESTEP_IN = opt.timestep_in
@@ -69,10 +70,10 @@ FLOWPATH = opt.flowpath
 ADJPATH = opt.adjpath
 ADJTYPE = opt.adjtype
 GPU = opt.gpu
-cpu_num = opt.cpu  # cpu_num = 1
+ADDTIME = opt.addtime
 
 import os
-
+cpu_num = 1
 os.environ['OMP_NUM_THREADS'] = str(cpu_num)
 os.environ['OPENBLAS_NUM_THREADS'] = str(cpu_num)
 os.environ['MKL_NUM_THREADS'] = str(cpu_num)
@@ -89,7 +90,6 @@ def getTimestamp(data):
     time_ind = (data.index.values - data.index.values.astype("datetime64[D]")) / np.timedelta64(1, "D")
     time_in_day = np.tile(time_ind, [num_nodes, 1]).transpose((1, 0))
     return time_in_day
-
 
 def getXSYSTIME(data, data_time, mode):
     # When CHANNENL = 2, use this function to get data plus time as two channels.
@@ -110,9 +110,13 @@ def getXSYSTIME(data, data_time, mode):
             XS.append(x), YS.append(y), XS_TIME.append(t)
     XS, YS, XS_TIME = np.array(XS), np.array(YS), np.array(XS_TIME)
     # todo
+    global CHANNEL
+    if ADDTIME:
+        CHANNEL = 1
+
     if CHANNEL == 1:
         XS = np.concatenate([np.expand_dims(XS, axis=-1), np.expand_dims(XS_TIME, axis=-1)], axis=-1)
-    XS, YS = XS.transpose(0, 3, 2, 1), YS[:, :, :, 0:1]
+    XS, YS = XS.transpose(0, 3, 2, 1), YS[:, :, :, TARGET:TARGET+1]
     return XS, YS
 
 
@@ -135,8 +139,22 @@ def getXSYS(data, mode):
     # todo
     if CHANNEL == 1:
         XS, YS = XS[:, :, :, np.newaxis], YS[:, :, :, np.newaxis]
-    XS, YS = XS.transpose(0, 3, 2, 1), YS[:, :, :, 0:1]
+    if not ADDTIME:
+        XS, YS = XS.transpose(0, 3, 2, 1), YS[:, :, :, TARGET:TARGET+1]
     return XS, YS
+
+def getXSYSTimestamp(data, timestamp, mode):
+    global CHANNEL
+    if ADDTIME:
+        CHANNEL = 1
+    XS, YS = getXSYS(data,mode)  # [samples,N]->[B,T,N,C]
+    time_seq_X, time_seq_Y = getXSYS(timestamp,mode) # [samples,N]->[B,T,N,C]
+    timestamp = (timestamp - timestamp.astype("datetime64[D]")) / np.timedelta64(1, "D")
+    sca_seq_timestamp_X, sca_seq_timestamp_Y = getXSYS(timestamp,mode) # [samples,N]->[B,T,N,C]
+    XS = np.concatenate((XS, sca_seq_timestamp_X), axis=-1)
+    XS, YS = XS.transpose(0, 3, 2, 1), YS[:, :, :, TARGET:TARGET+1]
+    return XS, YS
+
 
 
 def getModel(name):
@@ -178,6 +196,9 @@ def predictModel(model, data_iter):
 def trainModel(name, mode, XS, YS):
     print('Model Training Started ...', time.ctime())
     print('TIMESTEP_IN, TIMESTEP_OUT', TIMESTEP_IN, TIMESTEP_OUT)
+    global CHANNEL
+    if ADDTIME:
+        CHANNEL = 2
     model = getModel(name)
     summary(model, (CHANNEL, N_NODE, TIMESTEP_IN), device=device)
     XS_torch, YS_torch = torch.Tensor(XS).to(device), torch.Tensor(YS).to(device)
@@ -273,6 +294,9 @@ def testModel(name, mode, XS, YS):
         criterion = nn.L1Loss()
     print('Model Testing Started ...', time.ctime())
     print('TIMESTEP_IN, TIMESTEP_OUT', TIMESTEP_IN, TIMESTEP_OUT)
+    global CHANNEL
+    if ADDTIME:
+        CHANNEL = 2
     XS_torch, YS_torch = torch.Tensor(XS).to(device), torch.Tensor(YS).to(device)
     test_data = torch.utils.data.TensorDataset(XS_torch, YS_torch)
     test_iter = torch.utils.data.DataLoader(test_data, BATCHSIZE, shuffle=False)
@@ -325,16 +349,26 @@ np.random.seed(100)
 device = torch.device("cuda:{}".format(GPU)) if torch.cuda.is_available() else torch.device("cpu")
 ###########################################################
 # data = pd.read_csv(FLOWPATH,index_col=[0]).values
-data = np.load(FLOWPATH)['arr_0']
+data = None
+timestamp = None
+if ADDTIME:
+    CHANNEL = 1
+    data = pd.read_hdf(FLOWPATH)
+    stamp = data.index
+    timestamp = np.tile(stamp, [data.shape[1],1]).transpose(1,0)  # [samples,nodes]
+    data = data.values
+else:
+    data = np.load(FLOWPATH)['arr_0']
+
 scaler = StandardScaler()
 if CHANNEL == 1:
     data = scaler.fit_transform(data)
 else:
     for dim in range(CHANNEL):
-        # if dim == TARGET:
-        #     continue
+        if dim == TARGET:
+            continue
         data[:, :, dim] = scaler.fit_transform(data[:, :, dim])
-    # data[:, :, TARGET] = scaler.fit_transform(data[:, :, TARGET])
+    data[:, :, TARGET] = scaler.fit_transform(data[:, :, TARGET])
 print('data.shape', data.shape)
 
 
@@ -349,12 +383,19 @@ def main():
     # shutil.copy2('Param_GraphWaveNet.py', PATH)
 
     print(KEYWORD, 'training started', time.ctime())
-    trainXS, trainYS = getXSYS(data, 'TRAIN')
+    if ADDTIME:
+        trainXS, trainYS = getXSYSTimestamp(data, timestamp, 'TRAIN')
+    else:
+        trainXS, trainYS = getXSYS(data, 'TRAIN')
     print('TRAIN XS.shape YS,shape', trainXS.shape, trainYS.shape)
     trainModel(MODELNAME, 'train', trainXS, trainYS)
 
     print(KEYWORD, 'testing started', time.ctime())
-    testXS, testYS = getXSYS(data, 'TEST')
+    # testXS, testYS = getXSYS(data, 'TEST')
+    if ADDTIME:
+        testXS, testYS = getXSYSTimestamp(data, timestamp, 'TEST')
+    else:
+        testXS, testYS = getXSYS(data, 'TEST')
     print('TEST XS.shape, YS.shape', testXS.shape, testYS.shape)
     testModel(MODELNAME, 'test', testXS, testYS)
 

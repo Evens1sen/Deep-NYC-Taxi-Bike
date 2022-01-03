@@ -58,6 +58,14 @@ class DCGRU_Cell(nn.Module):
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
 
+        
+#         需要把conv_gate 和 conv_cand都改成多图的形式：
+#         self.multi_conv_gate = nn.ModuleList()  
+#         self.multi_conv_cand = nn.ModuleList()
+#         for i in range(多图)
+#             self.multi_conv_gate.append()
+            
+        
         self.conv_gate = GCN(K=K,
                              input_dim=input_dim + hidden_dim,
                              hidden_dim=hidden_dim * 2,  # for update_gate, reset_gate
@@ -80,13 +88,15 @@ class DCGRU_Cell(nn.Module):
 
         x_h = torch.cat([x_t, h_t_1], dim=-1)
         x_h_conv = self.conv_gate(G=P, x=x_h)
+#         对应修改成 x_h_conv[i] = self.multi_conv_gate[i](G=P[i], x=x_h)
 
         z, r = torch.split(x_h_conv, self.hidden_dim, dim=-1)
-        update_gate = torch.sigmoid(z)
+        
+        update_gate = torch.sigmoid(z)  # 没有维度变换
         reset_gate = torch.sigmoid(r)
 
         candidate = torch.cat([x_t, reset_gate * h_t_1], dim=-1)
-        cand_conv = torch.tanh(self.conv_cand(G=P, x=candidate))
+        cand_conv = torch.tanh(self.conv_cand(G=P, x=candidate))  # 也要改成如上91行
 
         h_t = (1.0 - update_gate) * h_t_1 + update_gate * cand_conv
         return h_t
@@ -220,8 +230,9 @@ class DCRNN(nn.Module):
         self.P = self.compute_cheby_poly(P).to(device) 
         self.encoder = DCGRU_Encoder(num_nodes=num_nodes, input_dim=input_dim, hidden_dim=hidden_dim, K=self.P.shape[0],
                                      num_layers=num_layers, bias=bias, activation=activation, return_all_layers=True)
-        self.decoder = DCGRU_Decoder(num_nodes=num_nodes, out_dim=input_dim, hidden_dim=hidden_dim, K=self.P.shape[0],
+        self.decoder = DCGRU_Decoder(num_nodes=num_nodes, out_dim=output_dim, hidden_dim=hidden_dim, K=self.P.shape[0],
                                      num_layers=num_layers, bias=bias, activation=activation, out_horizon=out_horizon)
+        self.out_dim = output_dim
         # 方式1
 #         self.fc = nn.Conv2d(in_channels=input_dim,
 #                                     out_channels=output_dim,
@@ -229,12 +240,12 @@ class DCRNN(nn.Module):
 #                                     bias=True)
         
 #         # 方式2 
-        self.fc = nn.ModuleList()
-        for i in range(out_horizon):
-            self.fc.append(nn.Conv1d(in_channels=input_dim,
-                                    out_channels=output_dim,
-                                    kernel_size=1,
-                                    bias=True))
+        # self.fc = nn.ModuleList()
+        # for i in range(out_horizon):
+        #     self.fc.append(nn.Conv1d(in_channels=input_dim,
+        #                             out_channels=output_dim,
+        #                             kernel_size=1,
+        #                             bias=True))
 
     def compute_cheby_poly(self, P: list):
         P_k = []
@@ -257,23 +268,32 @@ class DCRNN(nn.Module):
                                   h_0_l=None)  # encoder returns layerwise last hidden state [(B, N, C)] * L
         # decoding
         # deco_input = self.decoder.out_projector(h_t_lst[-1])        # initiate decoder input
-        deco_input = torch.zeros((x_seq.shape[0], x_seq.shape[2], x_seq.shape[3]),
-                                 device=x_seq.device)  # original initialization
+        # deco_input = torch.zeros((x_seq.shape[0], x_seq.shape[2], x_seq.shape[3]),
+        #                          device=x_seq.device)  # original initialization
                                  
+#         outputs = list()
+#         for t in range(self.decoder.out_horizon):
+#             output, h_t_lst = self.decoder(P=self.P, x_t=deco_input, h_0_l=h_t_lst)
+# #             print('h_t_lst shape : ', h_t_lst.shape)
+#             deco_input = output  # update decoder input  
+#             output = output.permute(0,2,1)  # [B,N,C] - [B,C,N]
+#             output = self.fc[t](output)
+        
+#             outputs.append(output)
+
+#         # print(outputs[0].shape)
+#         outputs = torch.stack(outputs, dim=1)  # (B, horizon, N, C)
+#         outputs = outputs.permute(0, 1, 3, 2)
+
+        deco_input = torch.zeros((x_seq.shape[0], x_seq.shape[2], self.out_dim), device=x_seq.device)  # original initialization
+
         outputs = list()
         for t in range(self.decoder.out_horizon):
             output, h_t_lst = self.decoder(P=self.P, x_t=deco_input, h_0_l=h_t_lst)
-#             print('h_t_lst shape : ', h_t_lst.shape)
-            deco_input = output  # update decoder input  
-            output = output.permute(0,2,1)  # [B,N,C] - [B,C,N]
-            output = self.fc[t](output)
-        
+            deco_input = output  # update decoder input
             outputs.append(output)
 
-        # print(outputs[0].shape)
-        outputs = torch.stack(outputs, dim=1)  # (B, horizon, N, C)
-        outputs = outputs.permute(0, 1, 3, 2)
-        
+        outputs = torch.stack(outputs, dim=1)  # (B, horizon, N, C)    
         
 #         outputs = outputs.permute(0,3,2,1) # (B, horizon, N, C) -> (B, C, N, horizon)
 #         outputs = self.fc(outputs)  # (B, C, N, horizon) ->  (B, 1, N, horizon) 
@@ -360,7 +380,7 @@ def main():
     ADJTYPE = 'symnadj'
     adj_mx = load_adj(ADJPATH, ADJTYPE)
     model = DCRNN(device, num_nodes=N_NODE, input_dim=CHANNEL, output_dim=1, out_horizon=TIMESTEP_OUT, P=adj_mx).to(device)
-    summary(model, (TIMESTEP_IN, N_NODE, 4), device=device)
+    summary(model, (TIMESTEP_IN, N_NODE, CHANNEL), device=device)
 
 if __name__ == '__main__':
     main()
