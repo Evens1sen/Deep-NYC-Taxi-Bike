@@ -25,10 +25,11 @@ The project structure is given as below
 
 - data-NYCBike: The npz file for NYCBike datasets
 - data-NYCTaxi: The npz file for NYCTaxi datasets
-- data-NYCZones: The zones information for New York and the adjacency matrix.
+- data-NYCZones: The zones information for New York and the adjacency matrix
 - data-processing: Generate the npy and npz files from the origin data
 - model: Model and prediction for NYC data with STGCN, DCRNN and Graph-waveNet
 - visualization: The prediction result for STGCN, DCRNN and Graph-waveNet, and some visualization
+
 
 
 
