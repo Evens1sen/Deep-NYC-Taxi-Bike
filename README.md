@@ -21,7 +21,7 @@ And we have done some data pre-processing for the Bike and Taxi datasets.
 
 ## Project Structure
 
-The project structure is given as below
+The project structure is given as below:
 
 - data-NYCBike: The npz file for NYCBike datasets
 - data-NYCTaxi: The npz file for NYCTaxi datasets
