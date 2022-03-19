@@ -1,0 +1,128 @@
+nohup: ignoring input
+../data-NYCTaxi/30min/bike_taxi_inoutflow.npz
+data0:[ 45.   2.  37.  27.  51.  41.  38.   9. 143.  59. 157.  51.  62. 195.
+  76.  24. 116.  13.   0.   0.   0. 147.  75.  54.  24.   0.  19.   5.
+   0.  98. 103. 157. 109.  86.  66.  77.  81.  11.   0.  50. 103. 136.
+  39. 110.  41. 207.  71.   1.   1.  20.  33.  51. 144.   6.  70.  41.
+ 102. 116. 187. 135. 154. 133.  18.  26. 109.  96.  31.  94. 156.]
+data.shape (35088, 69, 4)
+pred_METR-LA_STGCN3_2112232320 training started Thu Dec 23 23:20:25 2021
+getXSYS data.shape(35088, 69, 4)
+getXSYS XS.shape(28056, 4, 12, 69)
+getXSYS YS.shape(28056, 1, 1, 69)
+TRAIN XS.shape YS,shape (28056, 4, 12, 69) (28056, 1, 1, 69)
+Model Training Started ... Thu Dec 23 23:20:26 2021
+TIMESTEP_IN, TIMESTEP_OUT 12 3
+==========================================================================================
+Layer (type:depth-idx)                   Output Shape              Param #
+==========================================================================================
+├─st_conv_block: 1-1                     [-1, 64, 8, 69]           --
+|    └─temporal_conv_layer: 2-1          [-1, 16, 10, 69]          --
+|    |    └─align: 3-1                   [-1, 16, 12, 69]          --
+|    |    └─Conv2d: 3-2                  [-1, 32, 10, 69]          416
+|    └─spatio_conv_layer: 2-2            [-1, 16, 10, 69]          784
+|    └─temporal_conv_layer: 2-3          [-1, 64, 8, 69]           --
+|    |    └─align: 3-3                   [-1, 64, 10, 69]          --
+|    |    └─Conv2d: 3-4                  [-1, 64, 8, 69]           3,136
+|    └─LayerNorm: 2-4                    [-1, 8, 69, 64]           8,832
+|    └─Dropout: 2-5                      [-1, 64, 8, 69]           --
+├─st_conv_block: 1-2                     [-1, 64, 4, 69]           --
+|    └─temporal_conv_layer: 2-6          [-1, 16, 6, 69]           --
+|    |    └─align: 3-5                   [-1, 16, 8, 69]           1,040
+|    |    └─Conv2d: 3-6                  [-1, 32, 6, 69]           6,176
+|    └─spatio_conv_layer: 2-7            [-1, 16, 6, 69]           784
+|    └─temporal_conv_layer: 2-8          [-1, 64, 4, 69]           --
+|    |    └─align: 3-7                   [-1, 64, 6, 69]           --
+|    |    └─Conv2d: 3-8                  [-1, 64, 4, 69]           3,136
+|    └─LayerNorm: 2-9                    [-1, 4, 69, 64]           8,832
+|    └─Dropout: 2-10                     [-1, 64, 4, 69]           --
+├─output_layer: 1-3                      [-1, 1, 1, 69]            --
+|    └─temporal_conv_layer: 2-11         [-1, 64, 1, 69]           --
+|    |    └─align: 3-9                   [-1, 64, 4, 69]           --
+|    |    └─Conv2d: 3-10                 [-1, 128, 1, 69]          32,896
+|    └─LayerNorm: 2-12                   [-1, 1, 69, 64]           8,832
+|    └─temporal_conv_layer: 2-13         [-1, 64, 1, 69]           --
+|    |    └─align: 3-11                  [-1, 64, 1, 69]           --
+|    |    └─Conv2d: 3-12                 [-1, 64, 1, 69]           4,160
+|    └─Conv2d: 2-14                      [-1, 1, 1, 69]            65
+==========================================================================================
+Total params: 79,089
+Trainable params: 79,089
+Non-trainable params: 0
+Total mult-adds (M): 8.59
+==========================================================================================
+Input size (MB): 0.01
+Forward/backward pass size (MB): 1.42
+Params size (MB): 0.30
+Estimated Total Size (MB): 1.73
+==========================================================================================
+epoch 0 time used: 8  seconds  train loss: 0.3330176898277803 validation loss: 0.1045957020533571
+epoch 1 time used: 8  seconds  train loss: 0.27708311047232165 validation loss: 0.0922149474043978
+epoch 2 time used: 8  seconds  train loss: 0.2613922685143166 validation loss: 0.11001318009075767
+epoch 3 time used: 8  seconds  train loss: 0.2518811248896287 validation loss: 0.0907614928961548
+epoch 4 time used: 8  seconds  train loss: 0.24592133601394864 validation loss: 0.10009333156293568
+epoch 5 time used: 7  seconds  train loss: 0.24214367752594979 validation loss: 0.08406562043929121
+epoch 6 time used: 8  seconds  train loss: 0.23922216865473878 validation loss: 0.08523639362695247
+epoch 7 time used: 8  seconds  train loss: 0.23702643870095808 validation loss: 0.08636014597102179
+epoch 8 time used: 8  seconds  train loss: 0.23449271508712982 validation loss: 0.09035651551069342
+epoch 9 time used: 7  seconds  train loss: 0.2329133269893569 validation loss: 0.0944636773699398
+epoch 10 time used: 7  seconds  train loss: 0.23130744060684238 validation loss: 0.08583152273126501
+epoch 11 time used: 8  seconds  train loss: 0.2306852322366943 validation loss: 0.08260892504108643
+epoch 12 time used: 8  seconds  train loss: 0.22936545421239135 validation loss: 0.08566035755830577
+epoch 13 time used: 7  seconds  train loss: 0.22853202747275977 validation loss: 0.08580803452418134
+epoch 14 time used: 7  seconds  train loss: 0.22726300000522845 validation loss: 0.08588995462873569
+epoch 15 time used: 8  seconds  train loss: 0.22552944890721674 validation loss: 0.08746389865169914
+epoch 16 time used: 8  seconds  train loss: 0.22577270988053696 validation loss: 0.08420087385626304
+epoch 17 time used: 7  seconds  train loss: 0.2249426686545002 validation loss: 0.08303111404528943
+epoch 18 time used: 7  seconds  train loss: 0.22385248495396726 validation loss: 0.09436692064189829
+epoch 19 time used: 8  seconds  train loss: 0.2236829624068611 validation loss: 0.08070219212535919
+epoch 20 time used: 7  seconds  train loss: 0.22299570741430164 validation loss: 0.08318721455430794
+epoch 21 time used: 8  seconds  train loss: 0.22222439977036332 validation loss: 0.08517276544345898
+epoch 22 time used: 8  seconds  train loss: 0.22180370790705214 validation loss: 0.0927685112491917
+epoch 23 time used: 7  seconds  train loss: 0.2219011225411788 validation loss: 0.08328166618063676
+epoch 24 time used: 7  seconds  train loss: 0.22062958914314182 validation loss: 0.0812194964099311
+epoch 25 time used: 8  seconds  train loss: 0.2206295352685456 validation loss: 0.07931891417899362
+epoch 26 time used: 7  seconds  train loss: 0.2200576532045602 validation loss: 0.07893577312595457
+epoch 27 time used: 8  seconds  train loss: 0.21950981845046805 validation loss: 0.08209218405397455
+epoch 28 time used: 8  seconds  train loss: 0.2190874704531999 validation loss: 0.08113272785120687
+epoch 29 time used: 7  seconds  train loss: 0.21884544903080966 validation loss: 0.08758654260579289
+epoch 30 time used: 9  seconds  train loss: 0.21871297573566417 validation loss: 0.07978874464931739
+epoch 31 time used: 8  seconds  train loss: 0.21783249209107214 validation loss: 0.09233061315150284
+epoch 32 time used: 8  seconds  train loss: 0.21741722434937596 validation loss: 0.08508001441905598
+epoch 33 time used: 8  seconds  train loss: 0.21776651443471307 validation loss: 0.07964292478367647
+epoch 34 time used: 8  seconds  train loss: 0.21716321312818873 validation loss: 0.08379800637027698
+epoch 35 time used: 8  seconds  train loss: 0.21644271760262404 validation loss: 0.08200918202186738
+epoch 36 time used: 8  seconds  train loss: 0.21655371423697364 validation loss: 0.07616682010080048
+epoch 37 time used: 8  seconds  train loss: 0.2159824609911861 validation loss: 0.08059187815770281
+epoch 38 time used: 8  seconds  train loss: 0.21558505202015674 validation loss: 0.07866497813066187
+epoch 39 time used: 8  seconds  train loss: 0.21546773734809066 validation loss: 0.07709530729291648
+epoch 40 time used: 8  seconds  train loss: 0.2149616938071162 validation loss: 0.0789341785402457
+epoch 41 time used: 8  seconds  train loss: 0.21466576581797855 validation loss: 0.08319850133411695
+epoch 42 time used: 8  seconds  train loss: 0.2146578518846544 validation loss: 0.08168682480448157
+epoch 43 time used: 8  seconds  train loss: 0.2145770101655238 validation loss: 0.08040249335152286
+epoch 44 time used: 8  seconds  train loss: 0.21391704126047095 validation loss: 0.07907255665253872
+epoch 45 time used: 8  seconds  train loss: 0.21380114861528005 validation loss: 0.07916560840251476
+Early stopping at epoch: 46
+YS.shape, YS_pred.shape, (28056, 1, 1, 69) (28056, 1, 1, 69)
+YS.shape, YS_pred.shape, (28056, 69) (28056, 69)
+****************************************
+STGCN3, train, Torch MSE, 2.1189185270e-01, 0.2118918527
+
+STGCN3, train, MSE, RMSE, MAE, MAPE, 140.0115591521, 11.8326480194, 6.7760742071, 17.3940508854
+
+Model Training Ended ... Thu Dec 23 23:27:10 2021
+pred_METR-LA_STGCN3_2112232320 testing started Thu Dec 23 23:27:10 2021
+getXSYS data.shape(35088, 69, 4)
+getXSYS XS.shape(7016, 4, 12, 69)
+getXSYS YS.shape(7016, 1, 1, 69)
+TEST XS.shape, YS.shape (7016, 4, 12, 69) (7016, 1, 1, 69)
+Model Testing Started ... Thu Dec 23 23:27:10 2021
+TIMESTEP_IN, TIMESTEP_OUT 12 3
+YS.shape, YS_pred.shape, (7016, 1, 1, 69) (7016, 1, 1, 69)
+YS.shape, YS_pred.shape, (7016, 69) (7016, 69)
+****************************************
+STGCN3, test, Torch MSE, 1.3678439733e-01, 0.1367843973
+
+STGCN3, test, MSE, RMSE, MAE, MAPE, 107.8183317846, 10.3835606506, 6.0372179895, 56.5402644308
+
+Model Testing Ended ... Thu Dec 23 23:27:11 2021

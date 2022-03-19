@@ -38,14 +38,15 @@ parser.add_argument("--trainratio", type=float, default=0.8,
                     help="the total ratio of training data and validation data")  # TRAIN + VAL
 parser.add_argument("--trainvalsplit", type=float, default=0.125,  
                     help="val_ratio = 0.8 * 0.125 = 0.1")  # val_ratio = 0.8 * 0.125 = 0.1
-parser.add_argument("--flowpath", type=str, default='../data-NYCBike/60min/2019-2020-graph-inflow.npz', help="the path of flow file")
-parser.add_argument("--adjpath", type=str, default='../data-NYCZones/adjmatrix/W_od_bike_new.csv', help="the path of adj file")
+parser.add_argument("--flowpath", type=str, default='../data-NYCTaxi/60min/2019-2020-graph-outflow.npz', help="the path of flow file")
+parser.add_argument("--adjpath", type=str, default='../data-NYCZones/adjmatrix/W_od_taxi_new2.csv', help="the path of adj file")
 parser.add_argument("--cpu", type=int, default=1, help="the number of cpu")
-parser.add_argument("--adjtype", type=str, default="normlap", help="the type of adj")
+parser.add_argument("--adjtype", type=str, default="doubletransition", help="the type of adj")
 parser.add_argument('--ex', type=str, default='typhoon-inflow', help='which experiment setting to run')
 parser.add_argument('--gpu', type=int, default=0, help='gpu num')
 parser.add_argument('--target', type=int, default=0, help="The output target dimension")
 parser.add_argument('--addtime', type=bool, default=False, help="Add timestamp")
+parser.add_argument('--multigraph', type=bool, default=False, help="Is multi-graph prediction")
 
 opt = parser.parse_args()
 
@@ -68,6 +69,7 @@ ADJTYPE = opt.adjtype
 GPU = opt.gpu
 TARGET = opt.target
 ADDTIME = opt.addtime
+MULTIGRAPH = opt.multigraph
 cpu_num = opt.cpu  # cpu_num = 1
 import os
 
@@ -106,15 +108,22 @@ def getXSYSTimestamp(data, timestamp, mode):
     if ADDTIME:
         CHANNEL = 1
     XS, YS = getXSYS(data,mode)  # [samples,N]->[B,T,N,C]
-    time_seq_X, time_seq_Y = getXSYS(timestamp,mode) # [samples,N]->[B,T,N,C]
-    timestamp = (timestamp - timestamp.astype("datetime64[D]")) / np.timedelta64(1, "D")
-    sca_seq_timestamp_X, sca_seq_timestamp_Y = getXSYS(timestamp,mode) # [samples,N]->[B,T,N,C]
-    XS = np.concatenate((XS, sca_seq_timestamp_X), axis=-1)
+    # time_seq_X, time_seq_Y = getXSYS(timestamp,mode) # [samples,N]->[B,T,N,C]
+    # timestamp = (timestamp - timestamp.astype("datetime64[D]")) / np.timedelta64(1, "D")
+    # sca_seq_timestamp_X, sca_seq_timestamp_Y = getXSYS(timestamp,mode) # [samples,N]->[B,T,N,C]
+    CHANNEL = 32
+    timestamp_X, timestamp_Y = getXSYS(timestamp,mode)
+    XS = np.concatenate((XS,timestamp_X), axis=-1)
     return XS, YS
     
 
 def getModel(name):
     adj_mx = load_adj(ADJPATH, ADJTYPE)
+    if MULTIGRAPH:
+        ADJPATH1 = '../data-NYCZones/adjmatrix/W_adj_matrix.csv'
+        adj_mx_1 = load_adj(ADJPATH1, 'symnadj')
+        # adj = [adj_mx, adj_mx_1]
+        adj_mx.extend(adj_mx_1)
     model = DCRNN(device, num_nodes=N_NODE, input_dim=CHANNEL, output_dim=1, out_horizon=TIMESTEP_OUT, P=adj_mx).to(device)
     return model
 
@@ -148,7 +157,7 @@ def trainModel(name, mode, XS, YS):
     print('TIMESTEP_IN, TIMESTEP_OUT', TIMESTEP_IN, TIMESTEP_OUT)
     global CHANNEL
     if ADDTIME:
-        CHANNEL = 2
+        CHANNEL = 33
     model = getModel(name)
     summary(model, (TIMESTEP_IN, N_NODE, CHANNEL), device=device)
     XS_torch, YS_torch = torch.Tensor(XS).to(device), torch.Tensor(YS).to(device)
@@ -239,7 +248,7 @@ def testModel(name, mode, XS, YS):
     print('TIMESTEP_IN, TIMESTEP_OUT', TIMESTEP_IN, TIMESTEP_OUT)
     global CHANNEL
     if ADDTIME:
-        CHANNEL = 2
+        CHANNEL = 33
     XS_torch, YS_torch = torch.Tensor(XS).to(device), torch.Tensor(YS).to(device)
     test_data = torch.utils.data.TensorDataset(XS_torch, YS_torch)
     test_iter = torch.utils.data.DataLoader(test_data, BATCHSIZE, shuffle=False)
@@ -297,7 +306,9 @@ if ADDTIME:
     CHANNEL = 1
     data = pd.read_hdf(FLOWPATH)
     stamp = data.index
-    timestamp = np.tile(stamp, [data.shape[1],1]).transpose(1,0)  # [samples,nodes]
+    # timestamp = np.tile(stamp, [data.shape[1],1]).transpose(1,0)  # [samples,nodes]
+    timestamp = Utils.get_onehottime(stamp[0], stamp[-1], stamp.freq)
+    timestamp = np.tile(timestamp, [data.shape[1],1,1]).transpose(1, 0, 2)
     data = data.values
 else:
     data = np.load(FLOWPATH)['arr_0']

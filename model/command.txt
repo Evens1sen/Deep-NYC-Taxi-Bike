@@ -1,0 +1,1 @@
+nohup python -u pred_GraphWaveNet.py --epoch 1 --addtime True --flowpath   --adjpath

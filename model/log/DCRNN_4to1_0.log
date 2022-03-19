@@ -1,0 +1,123 @@
+nohup: ignoring input
+data.shape (17544, 69, 4)
+pred_NYC-Taxi_DCRNN_2112252058 training started Sat Dec 25 20:58:44 2021
+TRAIN XS.shape YS,shape (14021, 12, 69, 4) (14021, 3, 69, 1)
+Model Training Started ... Sat Dec 25 20:58:44 2021
+TIMESTEP_IN, TIMESTEP_OUT 12 3
+adj_mx shape is : (69, 69)
+==========================================================================================
+Layer (type:depth-idx)                   Output Shape              Param #
+==========================================================================================
+├─DCGRU_Encoder: 1-1                     [2, 12, 69, 64]           --
+|    └─ModuleList: 2                     []                        --
+|    |    └─DCGRU_Cell: 3-1              [-1, 69, 64]              39,360
+|    |    └─DCGRU_Cell: 3-2              [-1, 69, 64]              (recursive)
+|    |    └─DCGRU_Cell: 3-3              [-1, 69, 64]              (recursive)
+|    |    └─DCGRU_Cell: 3-4              [-1, 69, 64]              (recursive)
+|    |    └─DCGRU_Cell: 3-5              [-1, 69, 64]              (recursive)
+|    |    └─DCGRU_Cell: 3-6              [-1, 69, 64]              (recursive)
+|    |    └─DCGRU_Cell: 3-7              [-1, 69, 64]              (recursive)
+|    |    └─DCGRU_Cell: 3-8              [-1, 69, 64]              (recursive)
+|    |    └─DCGRU_Cell: 3-9              [-1, 69, 64]              (recursive)
+|    |    └─DCGRU_Cell: 3-10             [-1, 69, 64]              (recursive)
+|    |    └─DCGRU_Cell: 3-11             [-1, 69, 64]              (recursive)
+|    |    └─DCGRU_Cell: 3-12             [-1, 69, 64]              (recursive)
+|    |    └─DCGRU_Cell: 3-13             [-1, 69, 64]              73,920
+|    |    └─DCGRU_Cell: 3-14             [-1, 69, 64]              (recursive)
+|    |    └─DCGRU_Cell: 3-15             [-1, 69, 64]              (recursive)
+|    |    └─DCGRU_Cell: 3-16             [-1, 69, 64]              (recursive)
+|    |    └─DCGRU_Cell: 3-17             [-1, 69, 64]              (recursive)
+|    |    └─DCGRU_Cell: 3-18             [-1, 69, 64]              (recursive)
+|    |    └─DCGRU_Cell: 3-19             [-1, 69, 64]              (recursive)
+|    |    └─DCGRU_Cell: 3-20             [-1, 69, 64]              (recursive)
+|    |    └─DCGRU_Cell: 3-21             [-1, 69, 64]              (recursive)
+|    |    └─DCGRU_Cell: 3-22             [-1, 69, 64]              (recursive)
+|    |    └─DCGRU_Cell: 3-23             [-1, 69, 64]              (recursive)
+|    |    └─DCGRU_Cell: 3-24             [-1, 69, 64]              (recursive)
+├─DCGRU_Decoder: 1-2                     [-1, 69, 4]               --
+|    └─ModuleList: 2                     []                        --
+|    |    └─DCGRU_Cell: 3-25             [-1, 69, 64]              39,360
+|    |    └─DCGRU_Cell: 3-26             [-1, 69, 64]              73,920
+|    └─Linear: 2-1                       [-1, 69, 4]               260
+├─ModuleList: 1                          []                        --
+|    └─Conv1d: 2-2                       [-1, 1, 69]               5
+├─DCGRU_Decoder: 1-3                     [-1, 69, 4]               (recursive)
+|    └─ModuleList: 2                     []                        --
+|    |    └─DCGRU_Cell: 3-27             [-1, 69, 64]              (recursive)
+|    |    └─DCGRU_Cell: 3-28             [-1, 69, 64]              (recursive)
+|    └─Linear: 2-3                       [-1, 69, 4]               (recursive)
+├─ModuleList: 1                          []                        --
+|    └─Conv1d: 2-4                       [-1, 1, 69]               5
+├─DCGRU_Decoder: 1-4                     [-1, 69, 4]               (recursive)
+|    └─ModuleList: 2                     []                        --
+|    |    └─DCGRU_Cell: 3-29             [-1, 69, 64]              (recursive)
+|    |    └─DCGRU_Cell: 3-30             [-1, 69, 64]              (recursive)
+|    └─Linear: 2-5                       [-1, 69, 4]               (recursive)
+├─ModuleList: 1                          []                        --
+|    └─Conv1d: 2-6                       [-1, 1, 69]               5
+==========================================================================================
+Total params: 226,835
+Trainable params: 226,835
+Non-trainable params: 0
+Total mult-adds (M): 0.00
+==========================================================================================
+Input size (MB): 0.01
+Forward/backward pass size (MB): 0.41
+Params size (MB): 0.87
+Estimated Total Size (MB): 1.29
+==========================================================================================
+XS_torch.shape:   torch.Size([14021, 12, 69, 4])
+YS_torch.shape:   torch.Size([14021, 3, 69, 1])
+LOSS is : MAE
+epoch 0 time used: 9  seconds  train loss: 0.37063413518315463 validation loss: 0.3818995430003012
+epoch 1 time used: 9  seconds  train loss: 0.2605739674896225 validation loss: 0.36713808341428883
+epoch 2 time used: 10  seconds  train loss: 0.23489030561600285 validation loss: 0.34487397551400556
+epoch 3 time used: 10  seconds  train loss: 0.2221168872244707 validation loss: 0.3367615825981667
+epoch 4 time used: 10  seconds  train loss: 0.21338376261471226 validation loss: 0.33771278112871744
+epoch 5 time used: 10  seconds  train loss: 0.20708372752675025 validation loss: 0.33916630079524557
+epoch 6 time used: 10  seconds  train loss: 0.20144923257252506 validation loss: 0.3153074127704296
+epoch 7 time used: 10  seconds  train loss: 0.19871573745329837 validation loss: 0.33020693852570965
+epoch 8 time used: 10  seconds  train loss: 0.1943723802549815 validation loss: 0.3420154735896496
+epoch 9 time used: 11  seconds  train loss: 0.19307932741563485 validation loss: 0.32095551657391086
+epoch 10 time used: 11  seconds  train loss: 0.19013892909020602 validation loss: 0.3184950536513288
+epoch 11 time used: 11  seconds  train loss: 0.1872070335850173 validation loss: 0.3098240700097201
+epoch 12 time used: 11  seconds  train loss: 0.1859566249198699 validation loss: 0.3225408015051231
+epoch 13 time used: 11  seconds  train loss: 0.18341677567645553 validation loss: 0.3170475589841417
+epoch 14 time used: 11  seconds  train loss: 0.18165667976468636 validation loss: 0.3112477310813636
+epoch 15 time used: 11  seconds  train loss: 0.1806897782797451 validation loss: 0.31473309887999207
+epoch 16 time used: 11  seconds  train loss: 0.1780336965245924 validation loss: 0.31189802642624787
+epoch 17 time used: 11  seconds  train loss: 0.176635777892956 validation loss: 0.3133513797063931
+epoch 18 time used: 11  seconds  train loss: 0.17572705337870653 validation loss: 0.3183417526470615
+epoch 19 time used: 11  seconds  train loss: 0.1741599717900463 validation loss: 0.29760596895653113
+epoch 20 time used: 11  seconds  train loss: 0.17363538588924055 validation loss: 0.31811278624937184
+epoch 21 time used: 11  seconds  train loss: 0.17181148297202908 validation loss: 0.303129724244424
+epoch 22 time used: 11  seconds  train loss: 0.17096755258862886 validation loss: 0.31168082973580324
+epoch 23 time used: 11  seconds  train loss: 0.17018331142271773 validation loss: 0.3180720472737033
+epoch 24 time used: 11  seconds  train loss: 0.1693554839910651 validation loss: 0.3101498713441665
+epoch 25 time used: 11  seconds  train loss: 0.16867229280757096 validation loss: 0.315358600681738
+epoch 26 time used: 11  seconds  train loss: 0.16769973005714423 validation loss: 0.30663960332266615
+epoch 27 time used: 11  seconds  train loss: 0.1664359077621758 validation loss: 0.30573157992488104
+epoch 28 time used: 11  seconds  train loss: 0.16637275789939973 validation loss: 0.3097347114267039
+Early stopping at epoch: 29
+YS.shape, YS_pred.shape, (14021, 3, 69, 1) (14021, 3, 69, 1)
+YS.shape, YS_pred.shape, (14021, 3, 69) (14021, 3, 69)
+****************************************
+DCRNN, train, Torch MSE, 1.6460131687e-01, 0.1646013169
+DCRNN, train, MSE, RMSE, MAE, MAPE, 146.6102690990, 12.1082727546, 6.7692155194, 44.6683754990
+Model Training Ended ... Sat Dec 25 21:04:35 2021
+pred_NYC-Taxi_DCRNN_2112252058/home/cseadmin/mhy/model/DCRNN.py:290: RuntimeWarning: divide by zero encountered in power
+  d_inv_sqrt = np.power(rowsum, -0.5).flatten()
+ testing started Sat Dec 25 21:04:35 2021
+TEST XS.shape, YS.shape (3507, 12, 69, 4) (3507, 3, 69, 1)
+Model Testing Started ... Sat Dec 25 21:04:35 2021
+TIMESTEP_IN, TIMESTEP_OUT 12 3
+adj_mx shape is : (69, 69)
+YS.shape, YS_pred.shape, (3507, 3, 69, 1) (3507, 3, 69, 1)
+YS.shape, YS_pred.shape, (3507, 3, 69) (3507, 3, 69)
+****************************************
+DCRNN, test, Torch MSE, 3.3228687506e-01, 0.3322868751
+all pred steps, DCRNN, test, MSE, RMSE, MAE, MAPE, 262.0545868490, 16.1881001618, 9.2828607515, 49.2059903249
+1 step, DCRNN, test, MSE, RMSE, MAE, MAPE, 138.8907337970, 11.7851912923, 7.2432801038, 41.0119736952
+2 step, DCRNN, test, MSE, RMSE, MAE, MAPE, 263.5763957717, 16.2350360570, 9.4063072063, 49.2835310195
+3 step, DCRNN, test, MSE, RMSE, MAE, MAPE, 383.6978763426, 19.5882075837, 11.1990155606, 57.3225523654
+Model Testing Ended ... Sat Dec 25 21:04:38 2021

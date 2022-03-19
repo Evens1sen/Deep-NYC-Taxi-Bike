@@ -1,0 +1,456 @@
+import torch
+from torch import nn
+
+import sys
+import numpy as np
+import scipy.sparse as sp
+from torchsummary import summary
+from Utils import load_pickle
+import pandas as pd
+
+
+class GCN(nn.Module):
+    def __init__(self, K: int, input_dim: int, hidden_dim: int, bias=True, activation=nn.ReLU):
+        super().__init__()
+        self.K = K
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.bias = bias
+        self.activation = activation() if activation is not None else None
+        self.init_params(n_supports=K)
+
+    def init_params(self, n_supports: int, b_init=0):
+        self.W = nn.Parameter(torch.empty(
+            n_supports * self.input_dim, self.hidden_dim), requires_grad=True)
+        nn.init.xavier_normal_(
+            self.W)  # sampled from a normal distribution N(0, std^2), also known as Glorot initialization
+        if self.bias:
+            self.b = nn.Parameter(torch.empty(
+                self.hidden_dim), requires_grad=True)
+            nn.init.constant_(self.b, val=b_init)
+
+    def forward(self, G: torch.Tensor, x: torch.Tensor):
+        '''
+        Batch-wise graph convolution operation on given n support adj matrices
+        :param G: support adj matrices - torch.Tensor (K, n_nodes, n_nodes)
+        :param x: graph feature/signal - torch.Tensor (batch_size, n_nodes, input_dim)
+        :return: hidden representation - torch.Tensor (batch_size, n_nodes, hidden_dim)
+        '''
+        assert self.K == G.shape[0]
+
+        support_list = list()
+        for k in range(self.K):
+            support = torch.einsum('ij,bjp->bip', [G[k, :, :], x])
+            support_list.append(support)
+        support_cat = torch.cat(support_list, dim=-1)
+
+        output = torch.einsum('bip,pq->biq', [support_cat, self.W])
+        if self.bias:
+            output += self.b
+        output = self.activation(
+            output) if self.activation is not None else output
+        return output
+
+    def __repr__(self):
+        return self.__class__.__name__ + f'({self.K} * input {self.input_dim} -> hidden {self.hidden_dim})'
+
+
+class DCGRU_Cell(nn.Module):
+    def __init__(self, num_nodes: int, input_dim: int, hidden_dim: int, K: int, bias=True, activation=None):
+        super(DCGRU_Cell, self).__init__()
+        self.num_nodes = num_nodes
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+
+        # 需要把conv_gate 和 conv_cand都改成多图的形式：
+        self.multi_conv_gate = nn.ModuleList()
+        self.multi_conv_cand = nn.ModuleList()
+        self.multi_conv_gate.append(GCN(K=6,
+                                        input_dim=input_dim + hidden_dim,
+                                        hidden_dim=hidden_dim * 2,  # for update_gate, reset_gate
+                                        bias=bias,
+                                        activation=activation))
+        self.multi_conv_gate.append(GCN(K=3,
+                                        input_dim=input_dim + hidden_dim,
+                                        hidden_dim=hidden_dim * 2,  # for update_gate, reset_gate
+                                        bias=bias,
+                                        activation=activation))
+        self.multi_conv_cand.append(GCN(K=6,
+                                        input_dim=input_dim + hidden_dim,
+                                        hidden_dim=hidden_dim * 2,  # for update_gate, reset_gate
+                                        bias=bias,
+                                        activation=activation))
+        self.multi_conv_cand.append(GCN(K=3,
+                                        input_dim=input_dim + hidden_dim,
+                                        hidden_dim=hidden_dim * 2,  # for update_gate, reset_gate
+                                        bias=bias,
+                                        activation=activation))
+        self.linear1 = torch.nn.Conv1d(128*2, 128, kernel_size=1, bias=True)
+        self.linear2 = torch.nn.Conv1d(128*2, 64, kernel_size=1, bias=True)
+        # self.conv_gate = GCN(K=K,
+        #                      input_dim=input_dim + hidden_dim,
+        #                      hidden_dim=hidden_dim * 2,  # for update_gate, reset_gate
+        #                      bias=bias,
+        #                      activation=activation)
+        # self.conv_cand = GCN(K=K,
+        #                      input_dim=input_dim + hidden_dim,
+        #                      hidden_dim=hidden_dim,  # for candidate
+        #                      bias=bias,
+        #                      activation=activation)
+
+    def init_hidden(self, batch_size: int):
+        weight = next(self.parameters()).data
+        hidden = (weight.new_zeros(
+            batch_size, self.num_nodes, self.hidden_dim))
+        return hidden
+
+    def forward(self, P: torch.Tensor, x_t: torch.Tensor, h_t_1: torch.Tensor):
+        assert len(P[0].shape) == len(x_t.shape) == len(
+            h_t_1.shape) == 3, 'DCGRU cell must take in 3D tensor as input [x, h]'
+
+        x_h = torch.cat([x_t, h_t_1], dim=-1)
+        # x_h_conv = self.conv_gate(G=P, x=x_h)
+        x_h_conv_list = []
+        for i in range(2):
+            x_h_conv_list.append(self.multi_conv_gate[i](G=P[i], x=x_h))
+        # 对应修改成 for i in 2 : x_h_conv[i] = self.multi_conv_gate[i](G=P[i], x=x_h)
+        # print('x_h_conv length', len(x_h_conv))
+        # print('x_h_conv_list[0] shape', x_h_conv_list[0].shape)
+        # print('x_h_conv_list[1] shape', x_h_conv_list[1].shape)
+        x_h_conv = torch.cat((x_h_conv_list[0], x_h_conv_list[1]), dim=-1)
+        x_h_conv = x_h_conv.permute(0, 2, 1)
+        x_h_conv = self.linear1(x_h_conv)
+        x_h_conv = x_h_conv.permute(0, 2, 1)
+        # print('x_h_conv shape', x_h_conv.shape)
+        z, r = torch.split(x_h_conv, self.hidden_dim, dim=-1)
+
+        update_gate = torch.sigmoid(z)  # 没有维度变换
+        reset_gate = torch.sigmoid(r)
+
+        # print('x_t shape', x_t.shape)
+        # print('reset_gate', reset_gate.shape)
+        candidate = torch.cat([x_t, reset_gate * h_t_1], dim=-1)
+        # cand_conv = torch.tanh(self.conv_cand(G=P, x=candidate))  # 也要改成如上91行
+        cand_conv_list = []
+        for i in range(2):
+            cand_conv_list.append(torch.tanh(self.multi_conv_cand[i](G=P[i], x=candidate)))
+        cand_conv = torch.cat((cand_conv_list[0], cand_conv_list[1]), dim=-1)
+        # print('cand_conv', cand_conv.shape)
+        cand_conv = cand_conv.permute(0, 2, 1)
+        cand_conv = self.linear2(cand_conv)
+        cand_conv = cand_conv.permute(0, 2, 1)
+        # print('cand_conv', cand_conv.shape)
+        # print('h_t_1', h_t_1.shape)
+        # print('update_gate', )
+        h_t = (1.0 - update_gate) * h_t_1 + update_gate * cand_conv
+        return h_t
+
+
+class DCGRU_Encoder(nn.Module):
+    def __init__(self, num_nodes: int, input_dim: int, hidden_dim, K: int, num_layers: int,
+                 bias=True, activation=None, return_all_layers=False):
+        super(DCGRU_Encoder, self).__init__()
+        self.num_nodes = num_nodes
+        self.input_dim = input_dim
+        self.hidden_dim = self._extend_for_multilayer(hidden_dim, num_layers)
+        self.num_layers = num_layers
+        self.bias = bias
+        self.return_all_layers = return_all_layers
+        assert len(
+            self.hidden_dim) == self.num_layers, 'Input [hidden, layer] length must be consistent'
+
+        self.cell_list = nn.ModuleList()
+        for i in range(self.num_layers):
+            cur_input_dim = self.input_dim if i == 0 else self.hidden_dim[i - 1]
+            self.cell_list.append(DCGRU_Cell(num_nodes=num_nodes,
+                                             input_dim=cur_input_dim,
+                                             hidden_dim=self.hidden_dim[i],
+                                             K=K,
+                                             bias=bias,
+                                             activation=activation))
+
+    def forward(self, P: torch.Tensor, x_seq: torch.Tensor, h_0_l=None):
+        '''
+            P: (K, N, N)
+            x_seq: (B, T, N, C)
+            h_0_l: [(B, N, C)] * L
+            return - out_seq_lst: [(B, T, N, C)] * L
+                     h_t_lst: [(B, N, C)] * L
+        '''
+        assert len(
+            x_seq.shape) == 4, 'DCGRU must take in 4D tensor as input x_seq'
+        batch_size, seq_len, _, _ = x_seq.shape
+        if h_0_l is None:
+            h_0_l = self._init_hidden(batch_size)
+
+        out_seq_lst = list()  # layerwise output seq
+        h_t_lst = list()  # layerwise last state
+        in_seq_l = x_seq  # current input seq
+
+        for l in range(self.num_layers):
+            h_t = h_0_l[l]
+            out_seq_l = list()
+            for t in range(seq_len):
+                h_t = self.cell_list[l](
+                    P=P, x_t=in_seq_l[:, t, :, :], h_t_1=h_t)
+                out_seq_l.append(h_t)
+
+            out_seq_l = torch.stack(out_seq_l, dim=1)  # (B, T, N, C)
+            in_seq_l = out_seq_l  # update input seq
+
+            out_seq_lst.append(out_seq_l)
+            h_t_lst.append(h_t)
+
+        if not self.return_all_layers:
+            out_seq_lst = out_seq_lst[-1:]
+            h_t_lst = h_t_lst[-1:]
+        return out_seq_lst, h_t_lst
+
+    def _init_hidden(self, batch_size: int):
+        h_0_l = []
+        for i in range(self.num_layers):
+            h_0_l.append(self.cell_list[i].init_hidden(batch_size))
+        return h_0_l
+
+    @staticmethod
+    def _extend_for_multilayer(param, num_layers):
+        if not isinstance(param, list):
+            param = [param] * num_layers
+        return param
+
+
+class DCGRU_Decoder(nn.Module):  # projected output as input at the next timestep
+    def __init__(self, num_nodes: int, out_horizon: int, out_dim: int, hidden_dim, K: int, num_layers: int,
+                 bias=True, activation=None):
+        super(DCGRU_Decoder, self).__init__()
+        self.num_nodes = num_nodes
+        self.out_horizon = out_horizon  # output steps
+        self.out_dim = out_dim
+        self.hidden_dim = self._extend_for_multilayer(hidden_dim, num_layers)
+        self.num_layers = num_layers
+        self.bias = bias
+        assert len(
+            self.hidden_dim) == self.num_layers, 'Input [hidden, layer] length must be consistent'
+
+        self.cell_list = nn.ModuleList()
+        for i in range(self.num_layers):
+            cur_input_dim = self.out_dim if i == 0 else self.hidden_dim[i - 1]
+            self.cell_list.append(DCGRU_Cell(num_nodes=num_nodes,
+                                             input_dim=cur_input_dim,
+                                             hidden_dim=self.hidden_dim[i],
+                                             K=K,
+                                             bias=bias,
+                                             activation=activation))
+        # self.out_projector = nn.Sequential(nn.Linear(in_features=self.hidden_dim[-1], out_features=out_dim, bias=bias), nn.ReLU())
+        self.out_projector = nn.Linear(
+            in_features=self.hidden_dim[-1], out_features=out_dim, bias=bias)
+
+    def forward(self, P: torch.Tensor, x_t: torch.Tensor, h_0_l: list):
+        '''
+            P: (K, N, N)
+            x_t: (B, N, C)
+            h_0_l: [(B, N, C)] * L
+        '''
+        assert len(
+            x_t.shape) == 3, 'DCGRU cell decoder must take in 3D tensor as input x_t'
+
+        h_t_lst = list()  # layerwise hidden state
+        x_in_l = x_t
+
+        for l in range(self.num_layers):
+            h_t_l = self.cell_list[l](P=P, x_t=x_in_l, h_t_1=h_0_l[l])
+            h_t_lst.append(h_t_l)
+            x_in_l = h_t_l  # update input for next layer
+
+        output = self.out_projector(h_t_l)  # output
+        return output, h_t_lst
+
+    @staticmethod
+    def _extend_for_multilayer(param, num_layers):
+        if not isinstance(param, list):
+            param = [param] * num_layers
+        return param
+
+
+class DCRNN(nn.Module):
+    def __init__(self, device, num_nodes: int, input_dim: int, output_dim: int, out_horizon: int, P: list, K=3, hidden_dim=64, num_layers=2, bias=True,
+                 activation=None):
+        super(DCRNN, self).__init__()
+        self.K = K
+        self.P = []
+        for i in range(len(P)):
+            self.P.append(self.compute_cheby_poly(P[i]).to(device))
+        # print('OD matrix shape:', self.P[0].shape)
+        # self.P = self.compute_cheby_poly(P).to(device)   # 得改成 self.P[多图个数j] = self.compute_cheby_poly(P[j]).to(device)
+
+        self.encoder = DCGRU_Encoder(num_nodes=num_nodes, input_dim=input_dim, hidden_dim=hidden_dim, K=self.P[0].shape[0],
+                                     num_layers=num_layers, bias=bias, activation=activation, return_all_layers=True)
+        self.decoder = DCGRU_Decoder(num_nodes=num_nodes, out_dim=output_dim, hidden_dim=hidden_dim, K=self.P[0].shape[0],
+                                     num_layers=num_layers, bias=bias, activation=activation, out_horizon=out_horizon)
+        self.out_dim = output_dim
+        # 方式1
+#         self.fc = nn.Conv2d(in_channels=input_dim,
+#                                     out_channels=output_dim,
+#                                     kernel_size=(1,1),
+#                                     bias=True)
+
+#         # 方式2
+        # self.fc = nn.ModuleList()
+        # for i in range(out_horizon):
+        #     self.fc.append(nn.Conv1d(in_channels=input_dim,
+        #                             out_channels=output_dim,
+        #                             kernel_size=1,
+        #                             bias=True))
+
+    def compute_cheby_poly(self, P: list):
+        P_k = []
+        for p in P:
+            p = torch.from_numpy(p).float().T
+            T_k = [torch.eye(p.shape[0]), p]    # order 0, 1
+            for k in range(2, self.K):
+                # recurrent to order K
+                T_k.append(2*torch.mm(p, T_k[-1]) - T_k[-2])
+            P_k += T_k
+        # (K, N, N) or (2*K, N, N) for bidirection   - (多少个图*K, N, N)
+        return torch.stack(P_k, dim=0)
+
+    def forward(self, x_seq: torch.Tensor):
+        '''
+            x_seq: (B, T, N, C)
+        '''
+        assert len(
+            x_seq.shape) == 4, 'DCGRU must take in 4D tensor as input x_seq'
+
+        # encoding
+        _, h_t_lst = self.encoder(P=self.P, x_seq=x_seq,
+                                  h_0_l=None)  # encoder returns layerwise last hidden state [(B, N, C)] * L
+        # decoding
+        # deco_input = self.decoder.out_projector(h_t_lst[-1])        # initiate decoder input
+        # deco_input = torch.zeros((x_seq.shape[0], x_seq.shape[2], x_seq.shape[3]),
+        #                          device=x_seq.device)  # original initialization
+
+#         outputs = list()
+#         for t in range(self.decoder.out_horizon):
+#             output, h_t_lst = self.decoder(P=self.P, x_t=deco_input, h_0_l=h_t_lst)
+# #             print('h_t_lst shape : ', h_t_lst.shape)
+#             deco_input = output  # update decoder input
+#             output = output.permute(0,2,1)  # [B,N,C] - [B,C,N]
+#             output = self.fc[t](output)
+
+#             outputs.append(output)
+
+#         # print(outputs[0].shape)
+#         outputs = torch.stack(outputs, dim=1)  # (B, horizon, N, C)
+#         outputs = outputs.permute(0, 1, 3, 2)
+
+        # original initialization
+        deco_input = torch.zeros(
+            (x_seq.shape[0], x_seq.shape[2], self.out_dim), device=x_seq.device)
+
+        outputs = list()
+        for t in range(self.decoder.out_horizon):
+            output, h_t_lst = self.decoder(
+                P=self.P, x_t=deco_input, h_0_l=h_t_lst)
+            deco_input = output  # update decoder input
+            outputs.append(output)
+
+        outputs = torch.stack(outputs, dim=1)  # (B, horizon, N, C)
+
+#         outputs = outputs.permute(0,3,2,1) # (B, horizon, N, C) -> (B, C, N, horizon)
+#         outputs = self.fc(outputs)  # (B, C, N, horizon) ->  (B, 1, N, horizon)
+#         outputs = outputs.permute(0,3,2,1) # (B, C, N, horizon) -> (B, horizon, N, C)
+
+        # print('out shape is : ',outputs.shape)
+        return outputs
+
+
+def sym_adj(adj):
+    """Symmetrically normalize adjacency matrix."""
+    adj = sp.coo_matrix(adj)
+    rowsum = np.array(adj.sum(1))
+    d_inv_sqrt = np.power(rowsum, -0.5).flatten()
+    d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.
+    d_mat_inv_sqrt = sp.diags(d_inv_sqrt)
+    return adj.dot(d_mat_inv_sqrt).transpose().dot(d_mat_inv_sqrt).astype(np.float32).todense()
+
+
+def asym_adj(adj):
+    adj = sp.coo_matrix(adj)
+    rowsum = np.array(adj.sum(1)).flatten()
+    d_inv = np.power(rowsum, -1).flatten()
+    d_inv[np.isinf(d_inv)] = 0.
+    d_mat = sp.diags(d_inv)
+    return d_mat.dot(adj).astype(np.float32).todense()
+
+
+def calculate_normalized_laplacian(adj):
+    """
+    # L = D^-1/2 (D-A) D^-1/2 = I - D^-1/2 A D^-1/2
+    # D = diag(A 1)
+    :param adj:
+    :return:
+    """
+    adj = sp.coo_matrix(adj)
+    d = np.array(adj.sum(1))
+    d_inv_sqrt = np.power(d, -0.5).flatten()
+    d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.
+    d_mat_inv_sqrt = sp.diags(d_inv_sqrt)
+    normalized_laplacian = sp.eye(
+        adj.shape[0]) - adj.dot(d_mat_inv_sqrt).transpose().dot(d_mat_inv_sqrt).tocoo()
+    return normalized_laplacian
+
+
+def calculate_scaled_laplacian(adj_mx, lambda_max=2, undirected=True):
+    if undirected:
+        adj_mx = np.maximum.reduce([adj_mx, adj_mx.T])
+    L = calculate_normalized_laplacian(adj_mx)
+    if lambda_max is None:
+        lambda_max, _ = sp.linalg.eigsh(L, 1, which='LM')
+        lambda_max = lambda_max[0]
+    L = sp.csr_matrix(L)
+    M, _ = L.shape
+    I = sp.identity(M, format='csr', dtype=L.dtype)
+    L = (2 / lambda_max * L) - I
+    return L.astype(np.float32).todense()
+
+
+def load_adj(pkl_filename, adjtype):
+    #     sensor_ids, sensor_id_to_ind, adj_mx = load_pickle(pkl_filename)
+    adj_mx = pd.read_csv(pkl_filename).values
+    print('adj_mx shape is :', adj_mx.shape)
+    if adjtype == "scalap":
+        adj = [calculate_scaled_laplacian(adj_mx)]
+    elif adjtype == "normlap":
+        adj = [calculate_normalized_laplacian(
+            adj_mx).astype(np.float32).todense()]
+    elif adjtype == "symnadj":
+        adj = [sym_adj(adj_mx)]
+    elif adjtype == "transition":
+        adj = [asym_adj(adj_mx)]
+    elif adjtype == "doubletransition":
+        adj = [asym_adj(adj_mx), asym_adj(np.transpose(adj_mx))]
+    elif adjtype == "identity":
+        adj = [np.diag(np.ones(adj_mx.shape[0])).astype(np.float32)]
+    else:
+        error = 0
+        assert error, "adj type not defined"
+    return adj
+
+
+def main():
+    from pred_DCRNN import CHANNEL, N_NODE, TIMESTEP_IN, TIMESTEP_OUT, ADJPATH, ADJTYPE
+    GPU = sys.argv[-1] if len(sys.argv) == 2 else '3'
+    device = torch.device("cuda:{}".format(
+        GPU)) if torch.cuda.is_available() else torch.device("cpu")
+    # ADJTYPE = 'symnadj'
+    adj_mx = load_adj(ADJPATH, ADJTYPE)
+    ADJPATH1 = '../data-NYCZones/adjmatrix/W_adj_matrix.csv'
+    adj_mx_1 = load_adj(ADJPATH1, 'symnadj')
+    adj = [adj_mx, adj_mx_1]
+    model = DCRNN(device, num_nodes=N_NODE, input_dim=CHANNEL,
+                  output_dim=1, out_horizon=TIMESTEP_OUT, P=adj).to(device)
+    summary(model, (TIMESTEP_IN, N_NODE, CHANNEL), device=device)
+
+
+if __name__ == '__main__':
+    main()

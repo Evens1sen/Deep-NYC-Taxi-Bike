@@ -94,7 +94,6 @@ class DCGRU_Cell(nn.Module):
         
         update_gate = torch.sigmoid(z)  # 没有维度变换
         reset_gate = torch.sigmoid(r)
-
         candidate = torch.cat([x_t, reset_gate * h_t_1], dim=-1)
         cand_conv = torch.tanh(self.conv_cand(G=P, x=candidate))  # 也要改成如上91行
 
@@ -355,7 +354,10 @@ def calculate_scaled_laplacian(adj_mx, lambda_max=2, undirected=True):
 def load_adj(pkl_filename, adjtype):
 #     sensor_ids, sensor_id_to_ind, adj_mx = load_pickle(pkl_filename)
     adj_mx = pd.read_csv(pkl_filename).values
-    print('adj_mx shape is :',adj_mx.shape)
+    distances = adj_mx[~np.isinf(adj_mx)].flatten()
+    std = distances.std()
+    adj_mx = np.exp(-np.square(adj_mx / std))
+    
     if adjtype == "scalap":
         adj = [calculate_scaled_laplacian(adj_mx)]
     elif adjtype == "normlap":

@@ -1,6 +1,7 @@
 import pickle
 import torch
 import numpy as np
+import pandas as pd
 
 def masked_mae(preds, labels, null_val=0.0):
     preds[preds<1e-5]=0
@@ -37,3 +38,14 @@ def load_pickle(pickle_file):
         print('Unable to load data ', pickle_file, ':', e)
         raise
     return pickle_data
+
+def get_onehottime(start_date, end_date, freq):
+    df = pd.DataFrame({'time': pd.date_range(start_date, end_date, freq=freq)})
+    df['dayofweek'] = df.time.dt.weekday
+    df['hourofday'] = df.time.dt.hour
+    df['isholiday'] = df.apply(lambda x: int((x.dayofweek==5) | (x.dayofweek==6)), axis=1)
+    tmp1 = pd.get_dummies(df.dayofweek)
+    tmp2 = pd.get_dummies(df.hourofday)
+    tmp3 = df[['isholiday']]
+    df_dummy = pd.concat([tmp1, tmp2, tmp3], axis=1)
+    return df_dummy.values

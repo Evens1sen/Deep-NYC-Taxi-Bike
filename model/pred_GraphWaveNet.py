@@ -32,22 +32,22 @@ parser.add_argument("--channel", type=int, default=1, help="number of channel")
 parser.add_argument("--batchsize", type=int, default=64, help="size of the batches")
 parser.add_argument("--lr", type=float, default=0.001, help="adam: learning rate")
 parser.add_argument("--epoch", type=int, default=200, help="number of epochs of training")
-parser.add_argument("--patience", type=float, default=10, help="patience used for early stop")
+parser.add_argument("--patience", type=float, default=20, help="patience used for early stop")
 parser.add_argument("--optimizer", type=str, default='Adam', help="RMSprop, Adam")
 parser.add_argument("--loss", type=str, default='MAE', help="MAE, MSE, SELF")
 parser.add_argument("--trainratio", type=float, default=0.8,
                     help="the total ratio of training data and validation data")  # TRAIN + VAL
 parser.add_argument("--trainvalsplit", type=float, default=0.125,
                     help="val_ratio = 0.8 * 0.125 = 0.1")  # val_ratio = 0.8 * 0.125 = 0.1
-parser.add_argument("--flowpath", type=str, default='/home/cseadmin/mhy/data-NYCBike/60min/2019-2020-graph-outflow.npz',
-                    help="the path of flow file")
-parser.add_argument("--adjpath", type=str, default='/home/cseadmin/mhy/data-NYCZones/adjmatrix/W_od_bike_new.csv',
-                    help="the path of adj file")
+parser.add_argument("--flowpath", type=str, default='../data-NYCTaxi/60min/taxi-timestamp-outflow.h5', help="../data-NYCBike/60min/bike-timestamp-outflow.h5;----   ../data-NYCTaxi/60min/taxi-timestamp-inflow.h5")
+parser.add_argument("--adjpath", type=str, default='/home/cseadmin/mhy/data-NYCZones/adjmatrix/W_od_taxi.csv', help="/home/cseadmin/mhy/data-NYCZones/adjmatrix/W_od_taxi.csv")
 parser.add_argument("--target", type=int, default=0, help='the target dim')
-parser.add_argument("--adjtype", type=str, default="normlap", help="the type of adj")
+parser.add_argument("--adjtype", type=str, default="symnadj", help="the type of adj : normlap, symnadj")
 parser.add_argument('--ex', type=str, default='typhoon-inflow', help='which experiment setting to run')
 parser.add_argument('--gpu', type=int, default=3, help='gpu num')
 parser.add_argument('--addtime', type=bool, default=False, help="Add timestamp")
+parser.add_argument('--multigraph', type=bool, default=False, help="Is multi-graph prediction")
+
 
 
 opt = parser.parse_args()
@@ -113,7 +113,6 @@ def getXSYSTIME(data, data_time, mode):
     global CHANNEL
     if ADDTIME:
         CHANNEL = 1
-
     if CHANNEL == 1:
         XS = np.concatenate([np.expand_dims(XS, axis=-1), np.expand_dims(XS_TIME, axis=-1)], axis=-1)
     XS, YS = XS.transpose(0, 3, 2, 1), YS[:, :, :, TARGET:TARGET+1]
@@ -148,11 +147,14 @@ def getXSYSTimestamp(data, timestamp, mode):
     if ADDTIME:
         CHANNEL = 1
     XS, YS = getXSYS(data,mode)  # [samples,N]->[B,T,N,C]
-    time_seq_X, time_seq_Y = getXSYS(timestamp,mode) # [samples,N]->[B,T,N,C]
-    timestamp = (timestamp - timestamp.astype("datetime64[D]")) / np.timedelta64(1, "D")
-    sca_seq_timestamp_X, sca_seq_timestamp_Y = getXSYS(timestamp,mode) # [samples,N]->[B,T,N,C]
-    XS = np.concatenate((XS, sca_seq_timestamp_X), axis=-1)
-    XS, YS = XS.transpose(0, 3, 2, 1), YS[:, :, :, TARGET:TARGET+1]
+    # time_seq_X, time_seq_Y = getXSYS(timestamp,mode) # [samples,N]->[B,T,N,C]
+    # timestamp = (timestamp - timestamp.astype("datetime64[D]")) / np.timedelta64(1, "D")
+    # sca_seq_timestamp_X, sca_seq_timestamp_Y = getXSYS(timestamp,mode) # [samples,N]->[B,T,N,C]
+    # XS = np.concatenate((XS, sca_seq_timestamp_X), axis=-1)
+    CHANNEL = 32
+    timestamp_X, timestamp_Y = getXSYS(timestamp, mode)
+    XS = np.concatenate((XS, timestamp_X), axis=-1)
+    XS, YS = XS.transpose(0, 3, 2, 1), YS[:, :, :, TARGET:TARGET+1] #X[B,C,N,T] Y[B,T,N,1]
     return XS, YS
 
 
@@ -164,6 +166,10 @@ def getModel(name):
 
     # way2: adjacent graph + adaptive graph
     adj_mx = load_adj(ADJPATH, ADJTYPE)
+    if MULTIGRAPH:
+        ADJPATH1 = '../data-NYCZones/adjmatrix/W_adj_matrix.csv'
+        adj_mx_1 = load_adj(ADJPATH1, 'symnadj')
+        adj_mx.extend(adj_mx_1)
     supports = [torch.tensor(i).to(device) for i in adj_mx]
     model = gwnet(device, num_nodes=N_NODE, in_dim=CHANNEL, supports=supports, out_dim=TIMESTEP_OUT).to(device)
     return model
@@ -198,7 +204,7 @@ def trainModel(name, mode, XS, YS):
     print('TIMESTEP_IN, TIMESTEP_OUT', TIMESTEP_IN, TIMESTEP_OUT)
     global CHANNEL
     if ADDTIME:
-        CHANNEL = 2
+        CHANNEL = 33
     model = getModel(name)
     summary(model, (CHANNEL, N_NODE, TIMESTEP_IN), device=device)
     XS_torch, YS_torch = torch.Tensor(XS).to(device), torch.Tensor(YS).to(device)
@@ -247,7 +253,7 @@ def trainModel(name, mode, XS, YS):
             torch.save(model.state_dict(), PATH + '/' + name + '.pt')
         else:
             wait += 1
-            if wait == PATIENCE:
+            if wait == PATIENCE: #todo 5
                 print('Early stopping at epoch: %d' % epoch)
                 break
         endtime = datetime.now()
@@ -296,7 +302,7 @@ def testModel(name, mode, XS, YS):
     print('TIMESTEP_IN, TIMESTEP_OUT', TIMESTEP_IN, TIMESTEP_OUT)
     global CHANNEL
     if ADDTIME:
-        CHANNEL = 2
+        CHANNEL = 33
     XS_torch, YS_torch = torch.Tensor(XS).to(device), torch.Tensor(YS).to(device)
     test_data = torch.utils.data.TensorDataset(XS_torch, YS_torch)
     test_iter = torch.utils.data.DataLoader(test_data, BATCHSIZE, shuffle=False)
@@ -335,15 +341,14 @@ def testModel(name, mode, XS, YS):
     f.close()
     print('Model Testing Ended ...', time.ctime())
 
-
 ################# Parameter Setting #######################
 MODELNAME = 'GraphWaveNet'
-KEYWORD = 'pred_' + DATANAME + '_' + MODELNAME + '_' + datetime.now().strftime("%y%m%d%H%M")
+KEYWORD = 'pred_' + DATANAME + '_' + MODELNAME + '_' + datetime.now().strftime("%y%m%d%H%M%S")
 PATH = '../save/' + KEYWORD
 torch.manual_seed(100)
 torch.cuda.manual_seed(100)
 np.random.seed(100)
-# torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.deterministic = True
 ########################################################### 
 # GPU = sys.argv[-1] if len(sys.argv) == 2 else '3'
 device = torch.device("cuda:{}".format(GPU)) if torch.cuda.is_available() else torch.device("cpu")
@@ -355,7 +360,8 @@ if ADDTIME:
     CHANNEL = 1
     data = pd.read_hdf(FLOWPATH)
     stamp = data.index
-    timestamp = np.tile(stamp, [data.shape[1],1]).transpose(1,0)  # [samples,nodes]
+    timestamp = Utils.get_onehottime(stamp[0], stamp[-1], stamp.freq)
+    timestamp = np.tile(timestamp, [data.shape[1], 1, 1]).transpose(1, 0, 2)
     data = data.values
 else:
     data = np.load(FLOWPATH)['arr_0']

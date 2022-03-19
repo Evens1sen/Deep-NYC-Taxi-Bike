@@ -44,6 +44,7 @@ parser.add_argument("--adjtype", type=str, default="normlap", help="the type of 
 parser.add_argument('--ex', type=str, default='typhoon-inflow', help='which experiment setting to run')
 parser.add_argument('--gpu', type=int, default=3, help='gpu num')
 parser.add_argument('--addtime', type=bool, default=False, help="Add timestamp")
+parser.add_argument('--multigraph', type=bool, default=False, help="Is multi-graph prediction")
 
 
 opt = parser.parse_args()
@@ -67,6 +68,7 @@ ADJPATH = opt.adjpath
 ADJTYPE = opt.adjtype
 GPU = opt.gpu
 ADDTIME = opt.addtime
+MULTIGRAPH = opt.multigraph
 
 
 import os
@@ -79,7 +81,8 @@ os.environ['NUMEXPR_NUM_THREADS'] = str(cpu_num)
 torch.set_num_threads(cpu_num)
 
 
-ADJNUM = 2
+
+
 
 class nconv(nn.Module):
     def __init__(self):
@@ -119,7 +122,6 @@ class gcn(nn.Module):
         h = torch.cat(out,dim=1)
         h = self.mlp(h)
         h = F.dropout(h, self.dropout, training=self.training)
-        print(h.shape)
         return h   # 看下最后出来的维度
 
 
@@ -167,10 +169,10 @@ class gwnet(nn.Module):
                 self.nodevec2 = nn.Parameter(initemb2, requires_grad=True).to(device)
                 self.supports_len += 1
 
-        multi_gcn = nn.ModuleList()
-        for i in range(ADJNUM):
-            multi_gcn.append(gcn)
-    
+#         multi_gcn = nn.ModuleList()
+#         for i in range(多图个数j):
+#             multi_gcn.append(gcn)
+
         for b in range(blocks):
             additional_scope = kernel_size - 1
             new_dilation = 1
@@ -198,10 +200,10 @@ class gwnet(nn.Module):
                 receptive_field += additional_scope
                 additional_scope *= 2
                 if self.gcn_bool:
-                    self.gconv.append(multi_gcn(dilation_channels,residual_channels,dropout,support_len=self.supports_len))  # gcn 改成multi_gcn
+                    self.gconv.append(gcn(dilation_channels,residual_channels,dropout,support_len=self.supports_len))  # gcn 改成multi_gcn
 
 
-        
+
         self.end_conv_1 = nn.Conv2d(in_channels=skip_channels,
                                   out_channels=end_channels,
                                   kernel_size=(1,1),
@@ -233,14 +235,12 @@ class gwnet(nn.Module):
         skip = 0
 
         # calculate the current adaptive adj matrix once per iteration
-        
-        # 这里需要修改一下，加个for循环 
+
+        # 这里需要修改一下，加个for循环
         new_supports = None
         if self.gcn_bool and self.addaptadj and self.supports is not None:
-            for j in range(ADJNUM):
-                adp = F.softmax(F.relu(torch.mm(self.nodevec1, self.nodevec2)), dim=1)  # adp搞成adp[j]
-                new_supports = self.supports + [
-                    adp]  # new_supports也搞成new_supports[j]   self.supports 对应是要改成 self.supports[j]  [adp[j]]
+            adp = F.softmax(F.relu(torch.mm(self.nodevec1, self.nodevec2)), dim=1)  # adp搞成adp[j]
+            new_supports = self.supports + [adp]  # new_supports也搞成new_supports[j]   self.supports 对应是要改成 self.supports[j]  [adp[j]]
 
         # WaveNet layers
         for i in range(self.blocks * self.layers):
@@ -284,7 +284,7 @@ class gwnet(nn.Module):
                     x = self.gconv[i](x, new_supports)  #    new_supports也搞成new_supports[j]   gconv[i]改成gconv[i][j]
                 else:
                     x = self.gconv[i](x,self.supports)  #  self.supports也搞成self.supports[j]   gconv[i]改成gconv[i][j]
-            else:   
+            else:
                 x = self.residual_convs[i](x)
 
             # print("gconv after:",x.shape)
@@ -302,7 +302,7 @@ class gwnet(nn.Module):
         x = self.end_conv_2(x)
         # print("after2: ",x.shape)
         return x
-    
+
 def sym_adj(adj):
     """Symmetrically normalize adjacency matrix."""
     adj = sp.coo_matrix(adj)
@@ -349,15 +349,15 @@ def calculate_scaled_laplacian(adj_mx, lambda_max=2, undirected=True):
     return L.astype(np.float32).todense()
 
 def load_adj(pkl_filename, adjtype):
-#**************    
+#**************
 #change adj input
-#     sensor_ids, sensor_id_to_ind, adj_mx = load_pickle(pkl_filename)    
+#     sensor_ids, sensor_id_to_ind, adj_mx = load_pickle(pkl_filename)
 
     adj_mx = pd.read_csv(pkl_filename).values
     distances = adj_mx[~np.isinf(adj_mx)].flatten()
     std = distances.std()
-    adj_mx = np.exp(-np.square(adj_mx / std))    
-#**************       
+    adj_mx = np.exp(-np.square(adj_mx / std))
+#**************
     if adjtype == "scalap":
         adj = [calculate_scaled_laplacian(adj_mx)]
     elif adjtype == "normlap":
@@ -378,13 +378,11 @@ def load_adj(pkl_filename, adjtype):
 def main():
     # GPU = sys.argv[-1] if len(sys.argv) == 2 else '3'
     device = torch.device("cuda:{}".format(GPU)) if torch.cuda.is_available() else torch.device("cpu")
-    
+
     # adj_mx = [0]* 多图个数j
-    # adj_mx = [1][2]
     adj_mx =load_adj(ADJPATH,ADJTYPE)  # for in range(多图个数j): adj_mx[j] = load_adj(ADJPATH,ADJTYPE)
     # supports = [0]* 多图个数j
-    # supports = [1][2]
-    supports = [torch.tensor(i).to(device) for i in adj_mx]  # supports[j] = [torch.tensor(i).to(device) for i in adj_mx[j]]   -> j 1 N N 
+    supports = [torch.tensor(i).to(device) for i in adj_mx]  # supports[j] = [torch.tensor(i).to(device) for i in adj_mx[j]]   -> j 1 N N
 
     model = gwnet(device, num_nodes=N_NODE, in_dim=CHANNEL, supports=supports).to(device)
     summary(model, (CHANNEL, N_NODE, TIMESTEP_IN), device=device)
