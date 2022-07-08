@@ -1,5 +1,0 @@
-nohup: ignoring input
-Traceback (most recent call last):
-  File "pred_STGCN.py", line 8, in <module>
-    from sklearn.preprocessing import StandardScaler
-ModuleNotFoundError: No module named 'sklearn'
