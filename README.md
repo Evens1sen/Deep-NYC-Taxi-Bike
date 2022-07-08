@@ -1,7 +1,7 @@
 # Deep_NYC_Taxi_Bike
 
-This is the repo for the ITSC 2022 paper "Forecasting Regional Multimodal Transportation Demand with Graph Neural Networks: An Open Dataset!"
-, the deep learning research in NYC taxi and bike prediction.
+This is the repo for the ITSC 2022 paper "Forecasting Regional Multimodal Transportation Demand with Graph Neural Networks: An Open Dataset"
+, the deep learning dataset and research in NYC taxi and bike prediction.
 
 ## Dataset
 
